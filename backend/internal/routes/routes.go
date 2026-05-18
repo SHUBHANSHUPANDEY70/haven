@@ -14,6 +14,7 @@ func Setup() *gin.Engine {
 	api := r.Group("/api")
 	{
 		api.GET("/menu", handlers.GetMenu)
+		api.HEAD("/menu", handlers.GetMenu)
 		api.POST("/orders", handlers.CreateOrder)
 		api.GET("/orders", handlers.GetOrders)
 		api.GET("/dashboard", handlers.GetDashboard)
