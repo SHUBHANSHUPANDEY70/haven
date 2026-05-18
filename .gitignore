@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.DS_Store
+/backend/haven-pos
+/backend/seed
+*.exe
