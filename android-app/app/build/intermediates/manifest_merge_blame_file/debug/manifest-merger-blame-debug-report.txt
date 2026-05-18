@@ -1,0 +1,105 @@
+1<?xml version="1.0" encoding="utf-8"?>
+2<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+3    package="com.haven.cafe"
+4    android:versionCode="1"
+5    android:versionName="1.0" >
+6
+7    <uses-sdk
+8        android:minSdkVersion="24"
+9        android:targetSdkVersion="34" />
+10
+11    <uses-permission android:name="android.permission.INTERNET" />
+11-->/Users/pavitradurgeshpandey/Desktop/haven/android-app/app/src/main/AndroidManifest.xml:4:5-67
+11-->/Users/pavitradurgeshpandey/Desktop/haven/android-app/app/src/main/AndroidManifest.xml:4:22-64
+12    <uses-permission android:name="android.permission.BLUETOOTH" />
+12-->/Users/pavitradurgeshpandey/Desktop/haven/android-app/app/src/main/AndroidManifest.xml:5:5-68
+12-->/Users/pavitradurgeshpandey/Desktop/haven/android-app/app/src/main/AndroidManifest.xml:5:22-65
+13    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
+13-->/Users/pavitradurgeshpandey/Desktop/haven/android-app/app/src/main/AndroidManifest.xml:6:5-74
+13-->/Users/pavitradurgeshpandey/Desktop/haven/android-app/app/src/main/AndroidManifest.xml:6:22-71
+14    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+14-->/Users/pavitradurgeshpandey/Desktop/haven/android-app/app/src/main/AndroidManifest.xml:7:5-76
+14-->/Users/pavitradurgeshpandey/Desktop/haven/android-app/app/src/main/AndroidManifest.xml:7:22-73
+15    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
+15-->/Users/pavitradurgeshpandey/Desktop/haven/android-app/app/src/main/AndroidManifest.xml:8:5-73
+15-->/Users/pavitradurgeshpandey/Desktop/haven/android-app/app/src/main/AndroidManifest.xml:8:22-70
+16    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+16-->/Users/pavitradurgeshpandey/Desktop/haven/android-app/app/src/main/AndroidManifest.xml:9:5-79
+16-->/Users/pavitradurgeshpandey/Desktop/haven/android-app/app/src/main/AndroidManifest.xml:9:22-76
+17    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+17-->/Users/pavitradurgeshpandey/Desktop/haven/android-app/app/src/main/AndroidManifest.xml:10:5-81
+17-->/Users/pavitradurgeshpandey/Desktop/haven/android-app/app/src/main/AndroidManifest.xml:10:22-78
+18
+19    <permission
+19-->[androidx.core:core:1.9.0] /Users/pavitradurgeshpandey/.gradle/caches/transforms-3/69031d9de34e6ae4e80492f7a424b6d1/transformed/core-1.9.0/AndroidManifest.xml:22:5-24:47
+20        android:name="com.haven.cafe.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+20-->[androidx.core:core:1.9.0] /Users/pavitradurgeshpandey/.gradle/caches/transforms-3/69031d9de34e6ae4e80492f7a424b6d1/transformed/core-1.9.0/AndroidManifest.xml:23:9-81
+21        android:protectionLevel="signature" />
+21-->[androidx.core:core:1.9.0] /Users/pavitradurgeshpandey/.gradle/caches/transforms-3/69031d9de34e6ae4e80492f7a424b6d1/transformed/core-1.9.0/AndroidManifest.xml:24:9-44
+22
+23    <uses-permission android:name="com.haven.cafe.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" />
+23-->[androidx.core:core:1.9.0] /Users/pavitradurgeshpandey/.gradle/caches/transforms-3/69031d9de34e6ae4e80492f7a424b6d1/transformed/core-1.9.0/AndroidManifest.xml:26:5-97
+23-->[androidx.core:core:1.9.0] /Users/pavitradurgeshpandey/.gradle/caches/transforms-3/69031d9de34e6ae4e80492f7a424b6d1/transformed/core-1.9.0/AndroidManifest.xml:26:22-94
+24
+25    <application
+25-->/Users/pavitradurgeshpandey/Desktop/haven/android-app/app/src/main/AndroidManifest.xml:12:5-29:19
+26        android:allowBackup="true"
+26-->/Users/pavitradurgeshpandey/Desktop/haven/android-app/app/src/main/AndroidManifest.xml:13:9-35
+27        android:appComponentFactory="androidx.core.app.CoreComponentFactory"
+27-->[androidx.core:core:1.9.0] /Users/pavitradurgeshpandey/.gradle/caches/transforms-3/69031d9de34e6ae4e80492f7a424b6d1/transformed/core-1.9.0/AndroidManifest.xml:28:18-86
+28        android:debuggable="true"
+29        android:extractNativeLibs="false"
+30        android:icon="@mipmap/ic_launcher"
+30-->/Users/pavitradurgeshpandey/Desktop/haven/android-app/app/src/main/AndroidManifest.xml:14:9-43
+31        android:label="Haven Cafe"
+31-->/Users/pavitradurgeshpandey/Desktop/haven/android-app/app/src/main/AndroidManifest.xml:15:9-35
+32        android:theme="@style/Theme.HavenCafe"
+32-->/Users/pavitradurgeshpandey/Desktop/haven/android-app/app/src/main/AndroidManifest.xml:16:9-47
+33        android:usesCleartextTraffic="true" >
+33-->/Users/pavitradurgeshpandey/Desktop/haven/android-app/app/src/main/AndroidManifest.xml:17:9-44
+34        <activity
+34-->/Users/pavitradurgeshpandey/Desktop/haven/android-app/app/src/main/AndroidManifest.xml:19:9-28:20
+35            android:name="com.haven.cafe.MainActivity"
+35-->/Users/pavitradurgeshpandey/Desktop/haven/android-app/app/src/main/AndroidManifest.xml:20:13-41
+36            android:configChanges="orientation|screenSize|keyboard|keyboardHidden"
+36-->/Users/pavitradurgeshpandey/Desktop/haven/android-app/app/src/main/AndroidManifest.xml:23:13-83
+37            android:exported="true"
+37-->/Users/pavitradurgeshpandey/Desktop/haven/android-app/app/src/main/AndroidManifest.xml:21:13-36
+38            android:screenOrientation="unspecified" >
+38-->/Users/pavitradurgeshpandey/Desktop/haven/android-app/app/src/main/AndroidManifest.xml:22:13-52
+39            <intent-filter>
+39-->/Users/pavitradurgeshpandey/Desktop/haven/android-app/app/src/main/AndroidManifest.xml:24:13-27:29
+40                <action android:name="android.intent.action.MAIN" />
+40-->/Users/pavitradurgeshpandey/Desktop/haven/android-app/app/src/main/AndroidManifest.xml:25:17-69
+40-->/Users/pavitradurgeshpandey/Desktop/haven/android-app/app/src/main/AndroidManifest.xml:25:25-66
+41
+42                <category android:name="android.intent.category.LAUNCHER" />
+42-->/Users/pavitradurgeshpandey/Desktop/haven/android-app/app/src/main/AndroidManifest.xml:26:17-77
+42-->/Users/pavitradurgeshpandey/Desktop/haven/android-app/app/src/main/AndroidManifest.xml:26:27-74
+43            </intent-filter>
+44        </activity>
+45
+46        <provider
+46-->[androidx.emoji2:emoji2:1.2.0] /Users/pavitradurgeshpandey/.gradle/caches/transforms-3/986cb90b811bf58fb8e8ff4e6584552d/transformed/emoji2-1.2.0/AndroidManifest.xml:24:9-32:20
+47            android:name="androidx.startup.InitializationProvider"
+47-->[androidx.emoji2:emoji2:1.2.0] /Users/pavitradurgeshpandey/.gradle/caches/transforms-3/986cb90b811bf58fb8e8ff4e6584552d/transformed/emoji2-1.2.0/AndroidManifest.xml:25:13-67
+48            android:authorities="com.haven.cafe.androidx-startup"
+48-->[androidx.emoji2:emoji2:1.2.0] /Users/pavitradurgeshpandey/.gradle/caches/transforms-3/986cb90b811bf58fb8e8ff4e6584552d/transformed/emoji2-1.2.0/AndroidManifest.xml:26:13-68
+49            android:exported="false" >
+49-->[androidx.emoji2:emoji2:1.2.0] /Users/pavitradurgeshpandey/.gradle/caches/transforms-3/986cb90b811bf58fb8e8ff4e6584552d/transformed/emoji2-1.2.0/AndroidManifest.xml:27:13-37
+50            <meta-data
+50-->[androidx.emoji2:emoji2:1.2.0] /Users/pavitradurgeshpandey/.gradle/caches/transforms-3/986cb90b811bf58fb8e8ff4e6584552d/transformed/emoji2-1.2.0/AndroidManifest.xml:29:13-31:52
+51                android:name="androidx.emoji2.text.EmojiCompatInitializer"
+51-->[androidx.emoji2:emoji2:1.2.0] /Users/pavitradurgeshpandey/.gradle/caches/transforms-3/986cb90b811bf58fb8e8ff4e6584552d/transformed/emoji2-1.2.0/AndroidManifest.xml:30:17-75
+52                android:value="androidx.startup" />
+52-->[androidx.emoji2:emoji2:1.2.0] /Users/pavitradurgeshpandey/.gradle/caches/transforms-3/986cb90b811bf58fb8e8ff4e6584552d/transformed/emoji2-1.2.0/AndroidManifest.xml:31:17-49
+53            <meta-data
+53-->[androidx.lifecycle:lifecycle-process:2.4.1] /Users/pavitradurgeshpandey/.gradle/caches/transforms-3/b414648e0504e137bfb93e4ffd20cdf8/transformed/lifecycle-process-2.4.1/AndroidManifest.xml:31:13-33:52
+54                android:name="androidx.lifecycle.ProcessLifecycleInitializer"
+54-->[androidx.lifecycle:lifecycle-process:2.4.1] /Users/pavitradurgeshpandey/.gradle/caches/transforms-3/b414648e0504e137bfb93e4ffd20cdf8/transformed/lifecycle-process-2.4.1/AndroidManifest.xml:32:17-78
+55                android:value="androidx.startup" />
+55-->[androidx.lifecycle:lifecycle-process:2.4.1] /Users/pavitradurgeshpandey/.gradle/caches/transforms-3/b414648e0504e137bfb93e4ffd20cdf8/transformed/lifecycle-process-2.4.1/AndroidManifest.xml:33:17-49
+56        </provider>
+57    </application>
+58
+59</manifest>

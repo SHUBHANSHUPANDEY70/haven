@@ -1,7 +1,0 @@
-<?xml version='1.0' encoding='utf-8'?>
-<resources>
-    <string name="app_name">Haven Cafe POS</string>
-    <string name="title_activity_main">Haven Cafe POS</string>
-    <string name="package_name">com.havencafe.pos</string>
-    <string name="custom_url_scheme">com.havencafe.pos</string>
-</resources>
