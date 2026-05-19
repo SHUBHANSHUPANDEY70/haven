@@ -127,16 +127,19 @@ async function webBluetoothConnect(): Promise<boolean> {
     const server = await device!.gatt!.connect()
     const services = await server.getPrimaryServices()
     console.log('[Haven Printer] Services found:', services.map(s => s.uuid))
+    log('Services: ' + services.map(s => s.uuid).join(', '))
 
     // First pass: look for known write characteristics
     for (const svc of services) {
       try {
         const chars = await svc.getCharacteristics()
         console.log(`[Haven Printer] Service ${svc.uuid} chars:`, chars.map(c => `${c.uuid} (write:${c.properties.write}, writeNoResp:${c.properties.writeWithoutResponse})`))
+        log(`Svc ${svc.uuid.slice(4,8)}: ${chars.map(c => c.uuid.slice(4,8) + (c.properties.write?'[W]':'') + (c.properties.writeWithoutResponse?'[WnR]':'')).join(', ')}`)
         for (const c of chars) {
           if (WRITE_CHAR_UUIDS.includes(c.uuid) && (c.properties.write || c.properties.writeWithoutResponse)) {
             writeChar = c
             useWriteWithResponse = !c.properties.writeWithoutResponse
+            log('Using known char: ' + c.uuid)
             console.log('[Haven Printer] Using known char:', c.uuid)
             return true
           }
@@ -152,6 +155,7 @@ async function webBluetoothConnect(): Promise<boolean> {
           if (c.properties.writeWithoutResponse) {
             writeChar = c
             useWriteWithResponse = false
+            log('Fallback char (noResp): ' + c.uuid)
             console.log('[Haven Printer] Fallback char (noResp):', c.uuid)
             return true
           }
@@ -162,14 +166,19 @@ async function webBluetoothConnect(): Promise<boolean> {
         }
       } catch { /* skip */ }
     }
-    if (writeChar) console.log('[Haven Printer] Fallback char (resp):', writeChar.uuid)
+    if (writeChar) { log('Fallback char (resp): ' + writeChar.uuid); console.log('[Haven Printer] Fallback char (resp):', writeChar.uuid) }
     return writeChar !== null
   } catch (e) {
+    log('Connect failed: ' + (e as Error).message)
     console.error('[Haven Printer] Connect failed:', e)
     return false
   }
 }
 // --- Public API ---
+
+export const printerLogs: string[] = []
+function log(msg: string) { printerLogs.push(msg); console.log('[Haven Printer]', msg) }
+export function clearPrinterLogs() { printerLogs.length = 0 }
 
 let androidConnected = false
 
@@ -196,8 +205,10 @@ export function isPrinterConnected(): boolean {
 }
 
 export async function printReceipt(items: CartItem[], invoiceNo: number, paymentMethod: string): Promise<boolean> {
+  log('Printing bill #' + invoiceNo + ' (' + items.length + ' items)')
   const parts = buildReceipt(items, invoiceNo, paymentMethod)
   const combined = concatArrays(parts)
+  log('Data size: ' + combined.length + ' bytes')
 
   // Use Android native bridge
   if (window.AndroidBluetooth) {
@@ -210,9 +221,11 @@ export async function printReceipt(items: CartItem[], invoiceNo: number, payment
 
   // Web Bluetooth fallback
   if (!writeChar) {
+    log('No char cached, reconnecting...')
     const ok = await webBluetoothConnect()
-    if (!ok) throw new Error('Printer not connected')
+    if (!ok) { log('FAILED: Could not connect'); throw new Error('Printer not connected') }
   }
+  log('Sending ' + combined.length + ' bytes in 20-byte chunks to ' + writeChar!.uuid)
   // BLE MTU is typically 20 bytes for cheap printers, use small chunks
   const CHUNK = 20
   for (let i = 0; i < combined.length; i += CHUNK) {
@@ -224,5 +237,6 @@ export async function printReceipt(items: CartItem[], invoiceNo: number, payment
     }
     await new Promise(r => setTimeout(r, 30))
   }
+  log('DONE: All data sent successfully')
   return true
 }

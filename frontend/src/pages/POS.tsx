@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import type { MenuItem, CartItem } from '../types'
 import { menuData } from '../data/menu'
 import { getMenu, createOrder } from '../utils/api'
-import { printReceipt, connectPrinter, isPrinterConnected } from '../utils/printer'
+import { printReceipt, connectPrinter, isPrinterConnected, printerLogs, clearPrinterLogs } from '../utils/printer'
 
 export default function POS() {
   const [menu, setMenu] = useState<MenuItem[]>(menuData)
@@ -16,6 +16,8 @@ export default function POS() {
   const [printerStatus, setPrinterStatus] = useState(false)
   const [toast, setToast] = useState('')
   const [showCart, setShowCart] = useState(false)
+  const [logs, setLogs] = useState<string[]>([])
+  const [showLogs, setShowLogs] = useState(false)
 
   useEffect(() => {
     getMenu().then(items => {
@@ -59,12 +61,17 @@ export default function POS() {
   const handlePrint = async () => {
     if (cart.length === 0) return
     setLoading(true)
+    clearPrinterLogs()
+    setShowLogs(true)
+    setLogs([])
     try {
       const order = await createOrder(cart, paymentMethod)
       try {
         await printReceipt(cart, order.invoiceNo, paymentMethod)
+        setLogs([...printerLogs])
         showToastMsg(`Bill #${order.invoiceNo} printed & saved!`)
       } catch {
+        setLogs([...printerLogs])
         showToastMsg(`Bill #${order.invoiceNo} saved! (Print failed)`)
       }
       setCart([])
@@ -77,8 +84,10 @@ export default function POS() {
       localStorage.setItem('haven_orders', JSON.stringify(orders))
       try {
         await printReceipt(cart, invoiceNo, paymentMethod)
+        setLogs([...printerLogs])
         showToastMsg(`Bill #${invoiceNo} printed & saved!`)
       } catch {
+        setLogs([...printerLogs])
         showToastMsg(`Bill #${invoiceNo} saved!`)
       }
       setCart([])
@@ -88,8 +97,11 @@ export default function POS() {
   }
 
   const handleConnect = async () => {
+    clearPrinterLogs()
+    setShowLogs(true)
     const ok = await connectPrinter()
     setPrinterStatus(ok)
+    setLogs([...printerLogs])
     showToastMsg(ok ? 'Printer connected!' : 'Connection failed')
   }
 
@@ -222,6 +234,22 @@ export default function POS() {
           </div>
         </div>
       </div>
+
+      {/* Printer Logs Popup */}
+      {showLogs && (
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+          <div className="bg-gray-800 border border-gray-600 rounded-xl w-full max-w-sm max-h-[60vh] flex flex-col">
+            <div className="flex items-center justify-between p-3 border-b border-gray-700">
+              <h3 className="font-bold text-sm text-amber-400">🖨️ Printer Logs</h3>
+              <button onClick={() => setShowLogs(false)} className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs">✕</button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-3 space-y-1 font-mono text-[10px] text-green-400">
+              {logs.length === 0 && <p className="text-gray-500">Waiting for logs...</p>}
+              {logs.map((l, i) => <p key={i}>→ {l}</p>)}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Toast */}
       {toast && (
