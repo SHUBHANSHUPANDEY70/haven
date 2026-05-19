@@ -96,6 +96,8 @@ let useWriteWithResponse = false
 
 // All known thermal printer service UUIDs
 const PRINTER_SERVICES = [
+  '0000ae30-0000-1000-8000-00805f9b34fb',
+  '0000ae3a-0000-1000-8000-00805f9b34fb',
   '000018f0-0000-1000-8000-00805f9b34fb',
   'e7810a71-73ae-499d-8c15-faa9aef0c3f2',
   '49535343-fe7d-4ae5-8fa9-9fafd205e455',
@@ -107,6 +109,15 @@ const PRINTER_SERVICES = [
   '0000af00-0000-1000-8000-00805f9b34fb',
 ]
 
+// Known writable characteristic UUIDs for thermal printers
+const WRITE_CHAR_UUIDS = [
+  '0000ae01-0000-1000-8000-00805f9b34fb',
+  '0000ae3b-0000-1000-8000-00805f9b34fb',
+  '00002af1-0000-1000-8000-00805f9b34fb',
+  '0000ff02-0000-1000-8000-00805f9b34fb',
+  '0000ffe1-0000-1000-8000-00805f9b34fb',
+]
+
 async function webBluetoothConnect(): Promise<boolean> {
   try {
     const device = await navigator.bluetooth.requestDevice({
@@ -115,6 +126,25 @@ async function webBluetoothConnect(): Promise<boolean> {
     })
     const server = await device!.gatt!.connect()
     const services = await server.getPrimaryServices()
+    console.log('[Haven Printer] Services found:', services.map(s => s.uuid))
+
+    // First pass: look for known write characteristics
+    for (const svc of services) {
+      try {
+        const chars = await svc.getCharacteristics()
+        console.log(`[Haven Printer] Service ${svc.uuid} chars:`, chars.map(c => `${c.uuid} (write:${c.properties.write}, writeNoResp:${c.properties.writeWithoutResponse})`))
+        for (const c of chars) {
+          if (WRITE_CHAR_UUIDS.includes(c.uuid) && (c.properties.write || c.properties.writeWithoutResponse)) {
+            writeChar = c
+            useWriteWithResponse = !c.properties.writeWithoutResponse
+            console.log('[Haven Printer] Using known char:', c.uuid)
+            return true
+          }
+        }
+      } catch { /* skip */ }
+    }
+
+    // Second pass: use any writable characteristic
     for (const svc of services) {
       try {
         const chars = await svc.getCharacteristics()
@@ -122,6 +152,7 @@ async function webBluetoothConnect(): Promise<boolean> {
           if (c.properties.writeWithoutResponse) {
             writeChar = c
             useWriteWithResponse = false
+            console.log('[Haven Printer] Fallback char (noResp):', c.uuid)
             return true
           }
           if (c.properties.write && !writeChar) {
@@ -131,8 +162,10 @@ async function webBluetoothConnect(): Promise<boolean> {
         }
       } catch { /* skip */ }
     }
+    if (writeChar) console.log('[Haven Printer] Fallback char (resp):', writeChar.uuid)
     return writeChar !== null
-  } catch {
+  } catch (e) {
+    console.error('[Haven Printer] Connect failed:', e)
     return false
   }
 }
@@ -178,9 +211,10 @@ export async function printReceipt(items: CartItem[], invoiceNo: number, payment
   // Web Bluetooth fallback
   if (!writeChar) {
     const ok = await webBluetoothConnect()
-    if (!ok) return false
+    if (!ok) throw new Error('Printer not connected')
   }
-  const CHUNK = 200
+  // BLE MTU is typically 20 bytes for cheap printers, use small chunks
+  const CHUNK = 20
   for (let i = 0; i < combined.length; i += CHUNK) {
     const chunk = combined.slice(i, i + CHUNK)
     if (useWriteWithResponse) {
@@ -188,7 +222,7 @@ export async function printReceipt(items: CartItem[], invoiceNo: number, payment
     } else {
       await writeChar!.writeValueWithoutResponse(chunk)
     }
-    await new Promise(r => setTimeout(r, 100))
+    await new Promise(r => setTimeout(r, 30))
   }
   return true
 }
