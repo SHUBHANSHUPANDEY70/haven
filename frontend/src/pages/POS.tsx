@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import type { MenuItem, CartItem } from '../types'
 import { menuData } from '../data/menu'
 import { getMenu, createOrder } from '../utils/api'
-import { printReceipt, connectPrinter, isPrinterConnected, printerLogs, clearPrinterLogs } from '../utils/printer'
+import { printReceipt, connectPrinter, isPrinterConnected } from '../utils/printer'
 
 export default function POS() {
   const [menu, setMenu] = useState<MenuItem[]>(menuData)
@@ -16,8 +16,7 @@ export default function POS() {
   const [printerStatus, setPrinterStatus] = useState(false)
   const [toast, setToast] = useState('')
   const [showCart, setShowCart] = useState(false)
-  const [logs, setLogs] = useState<string[]>([])
-  const [showLogs, setShowLogs] = useState(false)
+  const [applyGST, setApplyGST] = useState(false)
 
   useEffect(() => {
     getMenu().then(items => {
@@ -56,22 +55,19 @@ export default function POS() {
   }
 
   const subtotal = cart.reduce((s, i) => s + i.total, 0)
+  const gstAmount = applyGST ? Math.round(subtotal * 0.05 * 100) / 100 : 0
+  const total = subtotal + gstAmount
   const cartCount = cart.reduce((s, i) => s + i.quantity, 0)
 
   const handlePrint = async () => {
     if (cart.length === 0) return
     setLoading(true)
-    clearPrinterLogs()
-    setShowLogs(true)
-    setLogs([])
     try {
-      const order = await createOrder(cart, paymentMethod)
+      const order = await createOrder(cart, paymentMethod, total)
       try {
-        await printReceipt(cart, order.invoiceNo, paymentMethod)
-        setLogs([...printerLogs])
+        await printReceipt(cart, order.invoiceNo, paymentMethod, gstAmount)
         showToastMsg(`Bill #${order.invoiceNo} printed & saved!`)
       } catch {
-        setLogs([...printerLogs])
         showToastMsg(`Bill #${order.invoiceNo} saved! (Print failed)`)
       }
       setCart([])
@@ -80,14 +76,12 @@ export default function POS() {
       const invoiceNo = parseInt(localStorage.getItem('haven_invoice') || '0') + 1
       localStorage.setItem('haven_invoice', invoiceNo.toString())
       const orders = JSON.parse(localStorage.getItem('haven_orders') || '[]')
-      orders.unshift({ invoiceNo, items: cart, subtotal, total: subtotal, paymentMethod, createdAt: new Date().toISOString() })
+      orders.unshift({ invoiceNo, items: cart, subtotal, total, paymentMethod, createdAt: new Date().toISOString() })
       localStorage.setItem('haven_orders', JSON.stringify(orders))
       try {
-        await printReceipt(cart, invoiceNo, paymentMethod)
-        setLogs([...printerLogs])
+        await printReceipt(cart, invoiceNo, paymentMethod, gstAmount)
         showToastMsg(`Bill #${invoiceNo} printed & saved!`)
       } catch {
-        setLogs([...printerLogs])
         showToastMsg(`Bill #${invoiceNo} saved!`)
       }
       setCart([])
@@ -97,11 +91,8 @@ export default function POS() {
   }
 
   const handleConnect = async () => {
-    clearPrinterLogs()
-    setShowLogs(true)
     const ok = await connectPrinter()
     setPrinterStatus(ok)
-    setLogs([...printerLogs])
     showToastMsg(ok ? 'Printer connected!' : 'Connection failed')
   }
 
@@ -167,7 +158,7 @@ export default function POS() {
           {/* Mobile bottom bar */}
           {cartCount > 0 && !showCart && (
             <div className="md:hidden flex items-center justify-between px-3 py-2 bg-gray-800 border-t border-gray-700">
-              <span className="text-sm font-bold text-amber-400">₹{subtotal.toFixed(0)} • {cartCount} items</span>
+              <span className="text-sm font-bold text-amber-400">₹{total.toFixed(0)} • {cartCount} items</span>
               <button onClick={() => setShowCart(true)} className="px-4 py-2 bg-amber-500 text-black font-bold text-sm rounded-lg">
                 View Cart →
               </button>
@@ -213,9 +204,20 @@ export default function POS() {
               <span className="text-gray-400">Subtotal</span>
               <span className="font-bold">₹{subtotal.toFixed(2)}</span>
             </div>
+            {/* GST Checkbox */}
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={applyGST}
+                onChange={e => setApplyGST(e.target.checked)}
+                className="w-4 h-4 accent-amber-500 cursor-pointer"
+              />
+              <span className="text-sm text-gray-300">Apply GST (5%)</span>
+              {applyGST && <span className="ml-auto text-sm text-amber-400 font-semibold">+₹{gstAmount.toFixed(2)}</span>}
+            </label>
             <div className="flex justify-between text-base md:text-lg font-bold">
               <span>Total</span>
-              <span className="text-amber-400">₹{subtotal.toFixed(2)}</span>
+              <span className="text-amber-400">₹{total.toFixed(2)}</span>
             </div>
             <div className="flex gap-2">
               <button onClick={() => setPaymentMethod('cash')}
@@ -234,22 +236,6 @@ export default function POS() {
           </div>
         </div>
       </div>
-
-      {/* Printer Logs Popup */}
-      {showLogs && (
-        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
-          <div className="bg-gray-800 border border-gray-600 rounded-xl w-full max-w-sm max-h-[60vh] flex flex-col">
-            <div className="flex items-center justify-between p-3 border-b border-gray-700">
-              <h3 className="font-bold text-sm text-amber-400">🖨️ Printer Logs</h3>
-              <button onClick={() => setShowLogs(false)} className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs">✕</button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-3 space-y-1 font-mono text-[10px] text-green-400">
-              {logs.length === 0 && <p className="text-gray-500">Waiting for logs...</p>}
-              {logs.map((l, i) => <p key={i}>→ {l}</p>)}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Toast */}
       {toast && (

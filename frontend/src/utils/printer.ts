@@ -20,56 +20,78 @@ function cmd(...bytes: number[]): Uint8Array { return new Uint8Array(bytes) }
 function text(s: string): Uint8Array { return encoder.encode(s) }
 function centerAlign(): Uint8Array { return cmd(ESC, 0x61, 1) }
 function leftAlign(): Uint8Array { return cmd(ESC, 0x61, 0) }
-function rightAlign(): Uint8Array { return cmd(ESC, 0x61, 2) }
 function bold(on: boolean): Uint8Array { return cmd(ESC, 0x45, on ? 1 : 0) }
-function doubleHeight(on: boolean): Uint8Array { return cmd(GS, 0x21, on ? 0x11 : 0x00) }
 function cut(): Uint8Array { return cmd(GS, 0x56, 0x00) }
 function feed(n: number): Uint8Array { return cmd(ESC, 0x64, n) }
-function padRight(s: string, len: number): string { return s.padEnd(len) }
-function padLeft(s: string, len: number): string { return s.padStart(len) }
 
 function payMethod(m: string): string {
   return m === 'cash' ? 'Cash Sale' : 'Digital Sale'
 }
 
-function buildReceipt(items: CartItem[], invoiceNo: number, paymentMethod: string): Uint8Array[] {
+function buildReceipt(items: CartItem[], invoiceNo: number, paymentMethod: string, gstAmount = 0): Uint8Array[] {
+  const W = 32
   const now = new Date()
   const date = now.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })
   const time = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })
   const subtotal = items.reduce((s, i) => s + i.total, 0)
-  const divider = '--------------------------------'
+  const total = subtotal + gstAmount
+  const div = '-'.repeat(W) + '\n'
+
+  // Pad right: fill trailing spaces to exact `len` chars
+  const rpad = (s: string, len: number) => s.length >= len ? s.slice(0, len) : s + ' '.repeat(len - s.length)
+  // Pad left: fill leading spaces to exact `len` chars (right-aligns text)
+  const lpad = (s: string, len: number) => s.length >= len ? s.slice(0, len) : ' '.repeat(len - s.length) + s
+
+  // Item line columns: name(18) + price(7) + amount(7) = 32 exactly
+  const itemLine = (name: string, price: number, amount: number) =>
+    rpad(name.slice(0, 18), 18) + lpad(price.toFixed(2), 7) + lpad(amount.toFixed(2), 7) + '\n'
+
+  // Footer line columns: label(15) + ":"(1) + value(16) = 32 exactly
+  const footerLine = (label: string, val: number) =>
+    rpad(label, 15) + ':' + lpad(val.toFixed(2), 16) + '\n'
+
+  const pay = payMethod(paymentMethod)
 
   return [
-    cmd(ESC, 0x40),
-    centerAlign(), doubleHeight(true), bold(true),
+    cmd(ESC, 0x40),        // Initialize printer (resets all settings)
+    cmd(GS, 0x21, 0x00),   // Force normal character size (no double height/width)
+    centerAlign(), bold(true),
     text('Haven Cafe Restaurant\n'),
-    doubleHeight(false), bold(false),
+    bold(false),
     text('Near Sagar Bridge, Besides ICICI\n'),
     text('Bank, Anand Vihar building,\n'),
     text('Bargawan, Katni\n'),
     text('Phone: 9340112448\n'),
     text('FSSAI: 11426120000032\n'),
-    text(divider + '\n'),
-    bold(true), text('Bill of Supply\n'), bold(false),
+    leftAlign(), text(div),
+    centerAlign(), bold(true), text('Bill of Supply\n'), bold(false),
+    text('\n'),
     leftAlign(),
-    text(`${payMethod(paymentMethod)}${padLeft('Date: ' + date, 32 - payMethod(paymentMethod).length)}\n`),
-    text(`${padLeft('Time: ' + time, 32)}\n`),
-    text(`${padLeft('Invoice no: ' + invoiceNo, 32)}\n`),
-    text(divider + '\n'),
-    text(padRight('Item', 16) + padLeft('Price', 8) + padLeft('Amount', 8) + '\n'),
+    // Line: "Cash Sale                  Date:"  → pay(27 chars) + "Date:"(5) = 32
+    text(rpad(pay, W - 5) + 'Date:\n'),
+    // Line: "                      DD/MM/YYYY"  → date right-aligned to col 32
+    text(lpad(date, W) + '\n'),
+    // Line: "              Time: HH:MM pm"       → right-aligned to col 32
+    text(lpad('Time: ' + time, W) + '\n'),
+    // Line: "             Invoice no: XYZ"       → right-aligned to col 32
+    text(lpad('Invoice no: ' + invoiceNo, W) + '\n'),
+    text(div),
+    // Column headers matching item columns: 18 + 7 + 7
+    text(rpad('Item Name', 18) + lpad('Price', 7) + lpad('Amount', 7) + '\n'),
     text('Qty\n'),
-    text(divider + '\n'),
+    text(div),
     ...items.flatMap(item => [
-      text(padRight(item.name.substring(0, 16), 16) + padLeft(item.price.toFixed(2), 8) + padLeft(item.total.toFixed(2), 8) + '\n'),
-      text(`x${item.quantity}\n`),
-      text(divider + '\n'),
+      text(itemLine(item.name, item.price, item.total)),
+      text('x' + item.quantity + '\n'),
     ]),
-    rightAlign(),
-    text(`Subtotal  :  ${padLeft(subtotal.toFixed(2), 10)}\n`),
-    text(`Total     :  ${padLeft(subtotal.toFixed(2), 10)}\n`),
-    leftAlign(), text(divider + '\n'),
-    centerAlign(),
+    text(div),
+    text(footerLine('Subtotal', subtotal)),
+    ...(gstAmount > 0 ? [text(footerLine('GST (5%)', gstAmount))] : []),
+    text(footerLine('Total', total)),
+    text(div),
+    centerAlign(), bold(true),
     text('Terms & Conditions\n'),
+    bold(false),
     text('Thank you for dining at HAVEN.\n'),
     text('See you again soon.\n'),
     feed(4), cut(),
@@ -204,9 +226,9 @@ export function isPrinterConnected(): boolean {
   return writeChar !== null
 }
 
-export async function printReceipt(items: CartItem[], invoiceNo: number, paymentMethod: string): Promise<boolean> {
+export async function printReceipt(items: CartItem[], invoiceNo: number, paymentMethod: string, gstAmount = 0): Promise<boolean> {
   log('Printing bill #' + invoiceNo + ' (' + items.length + ' items)')
-  const parts = buildReceipt(items, invoiceNo, paymentMethod)
+  const parts = buildReceipt(items, invoiceNo, paymentMethod, gstAmount)
   const combined = concatArrays(parts)
   log('Data size: ' + combined.length + ' bytes')
 

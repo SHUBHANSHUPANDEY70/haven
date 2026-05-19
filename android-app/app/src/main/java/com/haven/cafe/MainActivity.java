@@ -14,12 +14,17 @@ import android.bluetooth.le.ScanCallback;
 import android.bluetooth.le.ScanResult;
 import android.content.Context;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
+import android.net.http.SslError;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.webkit.JavascriptInterface;
+import android.webkit.SslErrorHandler;
 import android.webkit.WebChromeClient;
+import android.webkit.WebResourceError;
+import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -27,15 +32,13 @@ import android.view.Window;
 import android.view.WindowManager;
 import android.widget.Toast;
 
-import java.util.List;
-import java.util.UUID;
-
 public class MainActivity extends Activity {
     private WebView webView;
     private BluetoothAdapter bluetoothAdapter;
     private BluetoothGatt bluetoothGatt;
     private BluetoothGattCharacteristic writeCharacteristic;
     private static final int PERMISSION_REQUEST = 1;
+    private static final String URL = "https://haven-beta-brown.vercel.app";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -48,15 +51,47 @@ public class MainActivity extends Activity {
         webView = new WebView(this);
         setContentView(webView);
 
+        // Enable debugging
+        WebView.setWebContentsDebuggingEnabled(true);
+
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
         settings.setDatabaseEnabled(true);
+        settings.setAllowFileAccess(true);
+        settings.setAllowContentAccess(true);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        settings.setCacheMode(WebSettings.LOAD_NO_CACHE);
         settings.setUseWideViewPort(true);
         settings.setLoadWithOverviewMode(true);
+        settings.setUserAgentString(settings.getUserAgentString() + " HavenCafeApp");
 
-        webView.setWebViewClient(new WebViewClient());
+        webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onPageStarted(WebView view, String url, Bitmap favicon) {
+                Toast.makeText(MainActivity.this, "Loading...", Toast.LENGTH_SHORT).show();
+            }
+
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                Toast.makeText(MainActivity.this, "Loaded!", Toast.LENGTH_SHORT).show();
+            }
+
+            @Override
+            public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+                if (request.isForMainFrame()) {
+                    Toast.makeText(MainActivity.this, "Error: " + error.getDescription(), Toast.LENGTH_LONG).show();
+                    // Retry after 3 seconds
+                    new Handler(Looper.getMainLooper()).postDelayed(() -> view.loadUrl(URL), 3000);
+                }
+            }
+
+            @Override
+            public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
+                handler.proceed();
+            }
+        });
+
         webView.setWebChromeClient(new WebChromeClient());
         webView.addJavascriptInterface(new BluetoothBridge(), "AndroidBluetooth");
 
@@ -65,7 +100,7 @@ public class MainActivity extends Activity {
 
         requestBluetoothPermissions();
 
-        webView.loadUrl("https://haven-beta-brown.vercel.app");
+        webView.loadUrl(URL);
     }
 
     private void requestBluetoothPermissions() {
@@ -88,7 +123,7 @@ public class MainActivity extends Activity {
             if (bluetoothAdapter == null || !bluetoothAdapter.isEnabled()) {
                 runOnUiThread(() -> {
                     webView.evaluateJavascript("window.__btStatus && window.__btStatus('Bluetooth not available')", null);
-                    Toast.makeText(MainActivity.this, "Enable Bluetooth", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(MainActivity.this, "Enable Bluetooth first!", Toast.LENGTH_SHORT).show();
                 });
                 return;
             }
@@ -106,43 +141,33 @@ public class MainActivity extends Activity {
                     if (name != null && (name.contains("Printer") || name.contains("printer") ||
                             name.contains("POS") || name.contains("RPP") || name.contains("BlueTooth") ||
                             name.contains("Gprinter") || name.contains("XP") || name.contains("PT") ||
-                            name.contains("MPT") || name.contains("HM") || name.contains("MTP"))) {
+                            name.contains("MPT") || name.contains("HM") || name.contains("MTP") ||
+                            name.contains("Thermal") || name.contains("BT"))) {
                         scanner.stopScan(this);
                         connectToDevice(device);
                     }
                 }
-
-                @Override
-                public void onScanFailed(int errorCode) {
-                    runOnUiThread(() -> {
-                        webView.evaluateJavascript("window.__btStatus && window.__btStatus('Scan failed')", null);
-                        Toast.makeText(MainActivity.this, "Scan failed", Toast.LENGTH_SHORT).show();
-                    });
-                }
             });
 
-            // Stop scan after 10 seconds
             new Handler(Looper.getMainLooper()).postDelayed(() -> {
                 try { scanner.stopScan(new ScanCallback() {}); } catch (Exception e) {}
                 if (writeCharacteristic == null) {
                     runOnUiThread(() -> {
                         webView.evaluateJavascript("window.__btStatus && window.__btStatus('No printer found')", null);
-                        Toast.makeText(MainActivity.this, "No printer found. Make sure printer is ON.", Toast.LENGTH_LONG).show();
+                        Toast.makeText(MainActivity.this, "No printer found nearby", Toast.LENGTH_LONG).show();
                     });
                 }
             }, 10000);
         }
 
         private void connectToDevice(BluetoothDevice device) {
-            runOnUiThread(() -> Toast.makeText(MainActivity.this, "Connecting to " + device.getName(), Toast.LENGTH_SHORT).show());
+            runOnUiThread(() -> Toast.makeText(MainActivity.this, "Connecting: " + device.getName(), Toast.LENGTH_SHORT).show());
 
             bluetoothGatt = device.connectGatt(MainActivity.this, false, new BluetoothGattCallback() {
                 @Override
                 public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
                     if (newState == BluetoothGatt.STATE_CONNECTED) {
                         gatt.discoverServices();
-                    } else {
-                        runOnUiThread(() -> webView.evaluateJavascript("window.__btStatus && window.__btStatus('Disconnected')", null));
                     }
                 }
 
@@ -175,7 +200,6 @@ public class MainActivity extends Activity {
             if (writeCharacteristic == null || bluetoothGatt == null) return false;
             try {
                 byte[] data = android.util.Base64.decode(base64Data, android.util.Base64.DEFAULT);
-                // Send in chunks of 20 bytes (BLE limit)
                 for (int i = 0; i < data.length; i += 20) {
                     int end = Math.min(i + 20, data.length);
                     byte[] chunk = new byte[end - i];
