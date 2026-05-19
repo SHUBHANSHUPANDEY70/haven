@@ -1,13 +1,10 @@
-const CACHE_NAME = 'haven-pos-v1'
-const STATIC_ASSETS = ['/', '/index.html']
-
-self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(STATIC_ASSETS)))
-})
-
-self.addEventListener('fetch', (event) => {
-  if (event.request.url.includes('/api/')) return // Don't cache API calls
-  event.respondWith(
-    caches.match(event.request).then(cached => cached || fetch(event.request))
+// Unregister this service worker and clear all caches
+self.addEventListener('install', () => self.skipWaiting())
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k))))
+      .then(() => self.clients.matchAll())
+      .then(clients => clients.forEach(c => c.navigate(c.url)))
   )
+  self.registration.unregister()
 })
