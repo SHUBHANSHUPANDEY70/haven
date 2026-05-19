@@ -14,9 +14,17 @@ export default function POS() {
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'digital'>('cash')
   const [loading, setLoading] = useState(false)
   const [printerStatus, setPrinterStatus] = useState(false)
-  const [toast, setToast] = useState('')
+  const [toasts, setToasts] = useState<{ id: number; msg: string; type: 'add' | 'remove' | 'info'; leaving: boolean }[]>([])
   const [showCart, setShowCart] = useState(false)
   const [applyGST, setApplyGST] = useState(false)
+
+  const addToast = (msg: string, type: 'add' | 'remove' | 'info' = 'info') => {
+    const id = Date.now() + Math.random()
+    setToasts(prev => [...prev, { id, msg, type, leaving: false }])
+    // Start fade-out after 1.4s, remove after 1.65s
+    setTimeout(() => setToasts(prev => prev.map(t => t.id === id ? { ...t, leaving: true } : t)), 1400)
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 1650)
+  }
 
   useEffect(() => {
     getMenu().then(items => {
@@ -38,20 +46,31 @@ export default function POS() {
     setCart(prev => {
       const existing = prev.find(c => c.name === item.name)
       if (existing) {
+        addToast(`+1  ${item.name}`, 'add')
         return prev.map(c => c.name === item.name
           ? { ...c, quantity: c.quantity + 1, total: (c.quantity + 1) * c.price }
           : c)
       }
+      addToast(`Added  ${item.name}`, 'add')
       return [...prev, { name: item.name, price: item.price, quantity: 1, total: item.price }]
     })
   }
 
   const updateQty = (name: string, delta: number) => {
-    setCart(prev => prev.map(c => {
-      if (c.name !== name) return c
-      const qty = c.quantity + delta
-      return qty <= 0 ? null! : { ...c, quantity: qty, total: qty * c.price }
-    }).filter(Boolean))
+    setCart(prev => {
+      const item = prev.find(c => c.name === name)
+      if (item) {
+        const newQty = item.quantity + delta
+        if (newQty <= 0) addToast(`Removed  ${name}`, 'remove')
+        else if (delta > 0) addToast(`+1  ${name}`, 'add')
+        else addToast(`-1  ${name}`, 'remove')
+      }
+      return prev.map(c => {
+        if (c.name !== name) return c
+        const qty = c.quantity + delta
+        return qty <= 0 ? null! : { ...c, quantity: qty, total: qty * c.price }
+      }).filter(Boolean)
+    })
   }
 
   const subtotal = cart.reduce((s, i) => s + i.total, 0)
@@ -96,10 +115,7 @@ export default function POS() {
     showToastMsg(ok ? 'Printer connected!' : 'Connection failed')
   }
 
-  const showToastMsg = (msg: string) => {
-    setToast(msg)
-    setTimeout(() => setToast(''), 3000)
-  }
+  const showToastMsg = (msg: string) => addToast(msg, 'info')
 
   return (
     <div className="h-screen flex flex-col bg-gray-900 text-white overflow-hidden">
@@ -237,12 +253,21 @@ export default function POS() {
         </div>
       </div>
 
-      {/* Toast */}
-      {toast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-gray-800 border border-gray-600 px-4 py-2 rounded-xl shadow-2xl text-xs md:text-sm font-medium z-50">
-          {toast}
-        </div>
-      )}
+      {/* Stacked Toasts */}
+      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex flex-col items-center gap-2 pointer-events-none">
+        {toasts.map(t => (
+          <div key={t.id}
+            className={`px-4 py-2 rounded-xl shadow-2xl text-xs md:text-sm font-semibold flex items-center gap-2 whitespace-nowrap ${
+              t.leaving ? 'toast-leave' : 'toast-enter'
+            } ${
+              t.type === 'add'    ? 'bg-green-700  text-green-100  border border-green-500' :
+              t.type === 'remove' ? 'bg-red-900/90 text-red-200    border border-red-600'   :
+                                    'bg-gray-800   text-white      border border-gray-600'
+            }`}>
+            {t.type === 'add' ? '✓' : t.type === 'remove' ? '✕' : 'ℹ'} {t.msg}
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
