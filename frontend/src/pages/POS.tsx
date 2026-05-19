@@ -8,7 +8,8 @@ import { printReceipt, connectPrinter, isPrinterConnected } from '../utils/print
 export default function POS() {
   const [menu, setMenu] = useState<MenuItem[]>(menuData)
   const [categories, setCategories] = useState<string[]>([...new Set(menuData.map(i => i.category))])
-  const [activeCategory, setActiveCategory] = useState('')
+  const [activeCategory, setActiveCategory] = useState('All')
+  const [search, setSearch] = useState('')
   const [cart, setCart] = useState<CartItem[]>([])
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'digital'>('cash')
   const [loading, setLoading] = useState(false)
@@ -25,9 +26,12 @@ export default function POS() {
     }).catch(() => {})
   }, [])
 
-  useEffect(() => { setActiveCategory(categories[0] || '') }, [categories])
+  useEffect(() => { setActiveCategory('All') }, [categories])
 
-  const filteredItems = menu.filter(i => i.category === activeCategory)
+  const filteredItems = menu.filter(i =>
+    (activeCategory === 'All' || i.category === activeCategory) &&
+    (!search || i.name.toLowerCase().includes(search.toLowerCase()))
+  )
 
   const addToCart = (item: MenuItem) => {
     setCart(prev => {
@@ -120,7 +124,7 @@ export default function POS() {
         <div className={`${showCart ? 'hidden md:flex' : 'flex'} w-full md:w-[65%] flex-col border-r border-gray-700`}>
           {/* Category Tabs */}
           <div className="flex overflow-x-auto gap-1 p-2 bg-gray-800 border-b border-gray-700">
-            {categories.map(cat => (
+            {['All', ...categories].map(cat => (
               <button key={cat} onClick={() => setActiveCategory(cat)}
                 className={`px-2 md:px-3 py-1.5 md:py-2 rounded-lg text-[10px] md:text-xs font-medium whitespace-nowrap transition-all ${
                   activeCategory === cat ? 'bg-amber-500 text-black' : 'bg-gray-700 hover:bg-gray-600'
@@ -128,6 +132,12 @@ export default function POS() {
                 {cat}
               </button>
             ))}
+          </div>
+
+          {/* Search */}
+          <div className="px-2 py-1.5 bg-gray-800 border-b border-gray-700">
+            <input type="text" placeholder="Search menu..." value={search} onChange={e => setSearch(e.target.value)}
+              className="w-full px-3 py-1.5 bg-gray-700 border border-gray-600 rounded-lg text-xs md:text-sm text-white placeholder-gray-400 focus:outline-none focus:border-amber-500" />
           </div>
 
           {/* Items Grid */}

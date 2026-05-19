@@ -92,33 +92,50 @@ function toBase64(data: Uint8Array): string {
 
 // --- Web Bluetooth fallback ---
 let writeChar: BluetoothRemoteGATTCharacteristic | null = null
+let useWriteWithResponse = false
+
+// All known thermal printer service UUIDs
+const PRINTER_SERVICES = [
+  '000018f0-0000-1000-8000-00805f9b34fb',
+  'e7810a71-73ae-499d-8c15-faa9aef0c3f2',
+  '49535343-fe7d-4ae5-8fa9-9fafd205e455',
+  '0000ff00-0000-1000-8000-00805f9b34fb',
+  '0000ffe0-0000-1000-8000-00805f9b34fb',
+  '0000fff0-0000-1000-8000-00805f9b34fb',
+  '00001101-0000-1000-8000-00805f9b34fb',
+  '0000ae00-0000-1000-8000-00805f9b34fb',
+  '0000af00-0000-1000-8000-00805f9b34fb',
+]
 
 async function webBluetoothConnect(): Promise<boolean> {
   try {
     const device = await navigator.bluetooth.requestDevice({
-      filters: [{ services: ['000018f0-0000-1000-8000-00805f9b34fb'] }],
-      optionalServices: ['000018f0-0000-1000-8000-00805f9b34fb']
+      acceptAllDevices: true,
+      optionalServices: PRINTER_SERVICES
     })
     const server = await device!.gatt!.connect()
-    const service = await server.getPrimaryService('000018f0-0000-1000-8000-00805f9b34fb')
-    writeChar = await service.getCharacteristic('00002af1-0000-1000-8000-00805f9b34fb')
-    return true
-  } catch {
-    try {
-      const device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: ['000018f0-0000-1000-8000-00805f9b34fb'] })
-      const server = await device!.gatt!.connect()
-      const services = await server.getPrimaryServices()
-      for (const svc of services) {
+    const services = await server.getPrimaryServices()
+    for (const svc of services) {
+      try {
         const chars = await svc.getCharacteristics()
         for (const c of chars) {
-          if (c.properties.write || c.properties.writeWithoutResponse) { writeChar = c; return true }
+          if (c.properties.writeWithoutResponse) {
+            writeChar = c
+            useWriteWithResponse = false
+            return true
+          }
+          if (c.properties.write && !writeChar) {
+            writeChar = c
+            useWriteWithResponse = true
+          }
         }
-      }
-    } catch { /* */ }
+      } catch { /* skip */ }
+    }
+    return writeChar !== null
+  } catch {
     return false
   }
 }
-
 // --- Public API ---
 
 let androidConnected = false
@@ -163,10 +180,15 @@ export async function printReceipt(items: CartItem[], invoiceNo: number, payment
     const ok = await webBluetoothConnect()
     if (!ok) return false
   }
-  for (let i = 0; i < combined.length; i += 100) {
-    const chunk = combined.slice(i, i + 100)
-    await writeChar!.writeValueWithoutResponse(chunk)
-    await new Promise(r => setTimeout(r, 50))
+  const CHUNK = 200
+  for (let i = 0; i < combined.length; i += CHUNK) {
+    const chunk = combined.slice(i, i + CHUNK)
+    if (useWriteWithResponse) {
+      await writeChar!.writeValueWithResponse(chunk)
+    } else {
+      await writeChar!.writeValueWithoutResponse(chunk)
+    }
+    await new Promise(r => setTimeout(r, 100))
   }
   return true
 }
