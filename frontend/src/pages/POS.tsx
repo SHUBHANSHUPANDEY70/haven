@@ -21,6 +21,7 @@ export default function POS() {
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'digital'>('cash')
   const [loading, setLoading] = useState(false)
   const [printerStatus, setPrinterStatus] = useState(false)
+  const [printerConnecting, setPrinterConnecting] = useState(false)
   const [toasts, setToasts] = useState<{ id: number; msg: string; type: 'add' | 'remove' | 'info'; leaving: boolean }[]>([])
   const [showCart, setShowCart] = useState(false)
   const [applyGST, setApplyGST] = useState(false)
@@ -138,8 +139,11 @@ export default function POS() {
   }
 
   const handleConnect = async () => {
+    if (printerConnecting) return
+    setPrinterConnecting(true)
     const ok = await connectPrinter()
     setPrinterStatus(ok)
+    setPrinterConnecting(false)
     showToastMsg(ok ? 'Printer connected!' : 'Connection failed')
   }
 
@@ -151,9 +155,12 @@ export default function POS() {
       <header className="flex items-center justify-between px-3 py-2 bg-gray-800 border-b border-gray-700">
         <h1 className="text-lg md:text-xl font-bold text-amber-400">☕ Haven Cafe</h1>
         <div className="flex items-center gap-2">
-          <button onClick={handleConnect}
-            className={`px-2 py-1 rounded text-[10px] md:text-xs font-medium ${printerStatus || isPrinterConnected() ? 'bg-green-600' : 'bg-gray-600 hover:bg-gray-500'}`}>
-            🖨️ {printerStatus || isPrinterConnected() ? 'OK' : 'Printer'}
+          <button onClick={handleConnect} disabled={printerConnecting}
+            className={`px-2 py-1 rounded text-[10px] md:text-xs font-medium transition-colors ${
+              printerConnecting ? 'bg-yellow-600 cursor-wait' :
+              printerStatus || isPrinterConnected() ? 'bg-green-600' : 'bg-gray-600 hover:bg-gray-500'
+            }`}>
+            🖨️ {printerConnecting ? 'Scanning...' : printerStatus || isPrinterConnected() ? 'OK' : 'Printer'}
           </button>
           <Link to="/admin/dashboard" className="px-2 py-1 bg-indigo-600 hover:bg-indigo-500 rounded text-[10px] md:text-xs font-medium">
             📊

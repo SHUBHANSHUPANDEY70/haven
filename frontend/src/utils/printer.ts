@@ -37,17 +37,14 @@ function buildReceipt(items: CartItem[], invoiceNo: number, paymentMethod: strin
   const total = subtotal + gstAmount
   const div = '-'.repeat(W) + '\n'
 
-  // Pad right: fill trailing spaces to exact `len` chars
   const rpad = (s: string, len: number) => s.length >= len ? s.slice(0, len) : s + ' '.repeat(len - s.length)
-  // Pad left: fill leading spaces to exact `len` chars (right-aligns text)
   const lpad = (s: string, len: number) => s.length >= len ? s.slice(0, len) : ' '.repeat(len - s.length) + s
 
   // Item line: qty(3) + name(18) + amount(11) = 32 exactly
-  // e.g. "x2 French Fries          200.00"
   const itemLine = (name: string, qty: number, amount: number) => {
-    const qtyStr = ('x' + qty).padEnd(3)          // "x2 " — 3 chars
-    const amtStr = lpad(amount.toFixed(2), 11)     // right-aligned 11 chars
-    const nameWidth = W - 3 - 11                   // = 18 chars
+    const qtyStr = ('x' + qty).padEnd(3)
+    const amtStr = lpad(amount.toFixed(2), 11)
+    const nameWidth = W - 3 - 11  // 18
     return qtyStr + rpad(name.slice(0, nameWidth), nameWidth) + amtStr + '\n'
   }
 
@@ -58,8 +55,8 @@ function buildReceipt(items: CartItem[], invoiceNo: number, paymentMethod: strin
   const pay = payMethod(paymentMethod)
 
   return [
-    cmd(ESC, 0x40),        // Initialize printer (resets all settings)
-    cmd(GS, 0x21, 0x00),   // Force normal character size (no double height/width)
+    cmd(ESC, 0x40),       // Initialize printer
+    cmd(GS, 0x21, 0x00),  // Normal character size
     centerAlign(), bold(true),
     text('Haven Cafe Restaurant\n'),
     bold(false),
@@ -72,16 +69,11 @@ function buildReceipt(items: CartItem[], invoiceNo: number, paymentMethod: strin
     centerAlign(), bold(true), text('Bill of Supply\n'), bold(false),
     text('\n'),
     leftAlign(),
-    // "Cash Sale                  Date:"  → pay(27 chars) + "Date:"(5) = 32
     text(rpad(pay, W - 5) + 'Date:\n'),
-    // date right-aligned to col 32
     text(lpad(date, W) + '\n'),
-    // time right-aligned to col 32
     text(lpad('Time: ' + time, W) + '\n'),
-    // invoice right-aligned to col 32
     text(lpad('Invoice no: ' + invoiceNo, W) + '\n'),
     text(div),
-    // Column headers: qty(3) + name(18) + amount(11)
     text(rpad('Qty', 3) + rpad('Item Name', 18) + lpad('Amount', 11) + '\n'),
     text(div),
     ...items.map(item => text(itemLine(item.name, item.quantity, item.total))),
@@ -117,7 +109,6 @@ function toBase64(data: Uint8Array): string {
 let writeChar: BluetoothRemoteGATTCharacteristic | null = null
 let useWriteWithResponse = false
 
-// All known thermal printer service UUIDs
 const PRINTER_SERVICES = [
   '0000ae30-0000-1000-8000-00805f9b34fb',
   '0000ae3a-0000-1000-8000-00805f9b34fb',
@@ -132,7 +123,6 @@ const PRINTER_SERVICES = [
   '0000af00-0000-1000-8000-00805f9b34fb',
 ]
 
-// Known writable characteristic UUIDs for thermal printers
 const WRITE_CHAR_UUIDS = [
   '0000ae01-0000-1000-8000-00805f9b34fb',
   '0000ae3b-0000-1000-8000-00805f9b34fb',
@@ -148,10 +138,17 @@ async function webBluetoothConnect(): Promise<boolean> {
       optionalServices: PRINTER_SERVICES
     })
     const server = await device!.gatt!.connect()
+
+    // Clear stale char on disconnect
+    device.addEventListener('gattserverdisconnected', () => {
+      log('BLE disconnected — clearing cached char')
+      writeChar = null
+    })
+
     const services = await server.getPrimaryServices()
     log('Services: ' + services.map(s => s.uuid).join(', '))
 
-    // First pass: look for known write characteristics
+    // First pass: known write characteristic UUIDs
     for (const svc of services) {
       try {
         const chars = await svc.getCharacteristics()
@@ -167,7 +164,7 @@ async function webBluetoothConnect(): Promise<boolean> {
       } catch { /* skip */ }
     }
 
-    // Second pass: use any writable characteristic
+    // Second pass: any writable characteristic
     for (const svc of services) {
       try {
         const chars = await svc.getCharacteristics()
@@ -190,6 +187,28 @@ async function webBluetoothConnect(): Promise<boolean> {
   } catch (e) {
     log('Connect failed: ' + (e as Error).message)
     return false
+  }
+}
+
+// Send data in chunks — 200 bytes / 100ms is what this printer needs
+async function sendChunked(data: Uint8Array): Promise<void> {
+  const CHUNK = 200
+  const DELAY = 100
+  for (let i = 0; i < data.length; i += CHUNK) {
+    const chunk = data.slice(i, i + CHUNK)
+    try {
+      if (useWriteWithResponse) {
+        await writeChar!.writeValueWithResponse(chunk)
+      } else {
+        await writeChar!.writeValueWithoutResponse(chunk)
+      }
+    } catch (e) {
+      // Char went stale mid-print — clear it so next print reconnects
+      log('Write error mid-print: ' + (e as Error).message + ' — clearing char')
+      writeChar = null
+      throw e
+    }
+    await new Promise(r => setTimeout(r, DELAY))
   }
 }
 
@@ -220,38 +239,22 @@ export function isPrinterConnected(): boolean {
   return writeChar !== null
 }
 
-/**
- * Send data to the printer in 20-byte chunks.
- * Uses proper async sequencing — each chunk waits for the previous write to complete
- * before sending the next, preventing buffer overruns on cheap BLE printers.
- */
-async function sendChunked(data: Uint8Array): Promise<void> {
-  const CHUNK = 20
-  // 30ms matches the original working delay — do not increase unless printer drops data
-  const DELAY = 30
-
-  for (let i = 0; i < data.length; i += CHUNK) {
-    const chunk = data.slice(i, i + CHUNK)
-    if (useWriteWithResponse) {
-      await writeChar!.writeValueWithResponse(chunk)
-    } else {
-      // writeValueWithoutResponse may not return a real promise on all browsers;
-      // fire it and rely on the fixed delay for pacing instead
-      writeChar!.writeValueWithoutResponse(chunk).catch(() => {})
-    }
-    await new Promise(r => setTimeout(r, DELAY))
-  }
-}
-
-export async function printReceipt(items: CartItem[], invoiceNo: number, paymentMethod: string, gstAmount = 0): Promise<boolean> {
+export async function printReceipt(
+  items: CartItem[],
+  invoiceNo: number,
+  paymentMethod: string,
+  gstAmount = 0
+): Promise<boolean> {
   log('Printing bill #' + invoiceNo + ' (' + items.length + ' items)')
   const parts = buildReceipt(items, invoiceNo, paymentMethod, gstAmount)
   const combined = concatArrays(parts)
   log('Data size: ' + combined.length + ' bytes')
 
-  // Use Android native bridge
+  // ── Android native bridge ──
   if (window.AndroidBluetooth) {
+    // Auto-connect if needed
     if (!window.AndroidBluetooth.isConnected()) {
+      log('Not connected — auto-connecting...')
       const ok = await connectPrinter()
       if (!ok) { log('FAILED: Could not connect'); return false }
     }
@@ -261,14 +264,25 @@ export async function printReceipt(items: CartItem[], invoiceNo: number, payment
     return result
   }
 
-  // Web Bluetooth fallback
+  // ── Web Bluetooth ──
+  // If char is null or stale, reconnect (up to 1 retry)
   if (!writeChar) {
-    log('No char cached, reconnecting...')
+    log('No char — connecting...')
     const ok = await webBluetoothConnect()
     if (!ok) { log('FAILED: Could not connect'); throw new Error('Printer not connected') }
   }
-  log('Sending ' + combined.length + ' bytes in 20-byte chunks to ' + writeChar!.uuid)
-  await sendChunked(combined)
+
+  log('Sending ' + combined.length + ' bytes to ' + writeChar!.uuid)
+  try {
+    await sendChunked(combined)
+  } catch {
+    // One retry: reconnect and try again
+    log('Send failed — retrying with fresh connection...')
+    writeChar = null
+    const ok = await webBluetoothConnect()
+    if (!ok) { log('FAILED: Reconnect failed'); throw new Error('Printer not connected') }
+    await sendChunked(combined)
+  }
   log('DONE: All data sent successfully')
   return true
 }
