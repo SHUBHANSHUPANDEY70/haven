@@ -3,6 +3,12 @@ import type { MenuItem, Order, DashboardStats, CartItem } from '../types'
 
 const api = axios.create({ baseURL: import.meta.env.VITE_API_URL || '/api' })
 
+// Wake up the Render backend on load (free tier spins down after inactivity).
+// Uses HEAD /menu so it's cheap — no response body needed.
+export function wakeBackend() {
+  api.head('/menu').catch(() => {/* ignore — just warming up */})
+}
+
 // MongoDB returns _id — normalize it to id so our MenuItem interface works
 export const getMenu = () =>
   api.get<(MenuItem & { _id?: string })[]>('/menu').then(r =>

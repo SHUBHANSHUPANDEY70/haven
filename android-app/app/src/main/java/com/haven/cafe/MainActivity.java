@@ -32,13 +32,24 @@ import android.view.Window;
 import android.view.WindowManager;
 import android.widget.Toast;
 
+import java.util.ArrayDeque;
+import java.util.Queue;
+import java.util.concurrent.atomic.AtomicBoolean;
+
 public class MainActivity extends Activity {
     private WebView webView;
     private BluetoothAdapter bluetoothAdapter;
     private BluetoothGatt bluetoothGatt;
     private BluetoothGattCharacteristic writeCharacteristic;
+    private BluetoothLeScanner activeScanner;
+    private ScanCallback activeScanCallback;
     private static final int PERMISSION_REQUEST = 1;
     private static final String URL = "https://haven-beta-brown.vercel.app";
+
+    // Write queue for serialized BLE chunk delivery
+    private final Queue<byte[]> writeQueue = new ArrayDeque<>();
+    private final AtomicBoolean writeInProgress = new AtomicBoolean(false);
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -51,7 +62,6 @@ public class MainActivity extends Activity {
         webView = new WebView(this);
         setContentView(webView);
 
-        // Enable debugging
         WebView.setWebContentsDebuggingEnabled(true);
 
         WebSettings settings = webView.getSettings();
@@ -81,7 +91,6 @@ public class MainActivity extends Activity {
             public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
                 if (request.isForMainFrame()) {
                     Toast.makeText(MainActivity.this, "Error: " + error.getDescription(), Toast.LENGTH_LONG).show();
-                    // Retry after 3 seconds
                     new Handler(Looper.getMainLooper()).postDelayed(() -> view.loadUrl(URL), 3000);
                 }
             }
@@ -99,7 +108,6 @@ public class MainActivity extends Activity {
         if (bm != null) bluetoothAdapter = bm.getAdapter();
 
         requestBluetoothPermissions();
-
         webView.loadUrl(URL);
     }
 
@@ -114,6 +122,33 @@ public class MainActivity extends Activity {
             requestPermissions(new String[]{
                 Manifest.permission.ACCESS_FINE_LOCATION
             }, PERMISSION_REQUEST);
+        }
+    }
+
+    /** Stop the active BLE scan safely. */
+    private void stopActiveScan() {
+        if (activeScanner != null && activeScanCallback != null) {
+            try { activeScanner.stopScan(activeScanCallback); } catch (Exception ignored) {}
+            activeScanner = null;
+            activeScanCallback = null;
+        }
+    }
+
+    /** Drain the write queue one chunk at a time, waiting for onCharacteristicWrite. */
+    private void drainWriteQueue() {
+        if (!writeInProgress.compareAndSet(false, true)) return;
+        byte[] chunk = writeQueue.poll();
+        if (chunk == null) {
+            writeInProgress.set(false);
+            return;
+        }
+        writeCharacteristic.setValue(chunk);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            bluetoothGatt.writeCharacteristic(writeCharacteristic,
+                    chunk, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE);
+        } else {
+            writeCharacteristic.setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE);
+            bluetoothGatt.writeCharacteristic(writeCharacteristic);
         }
     }
 
@@ -133,7 +168,7 @@ public class MainActivity extends Activity {
 
             runOnUiThread(() -> Toast.makeText(MainActivity.this, "Scanning for printer...", Toast.LENGTH_SHORT).show());
 
-            scanner.startScan(new ScanCallback() {
+            ScanCallback callback = new ScanCallback() {
                 @Override
                 public void onScanResult(int callbackType, ScanResult result) {
                     BluetoothDevice device = result.getDevice();
@@ -143,19 +178,27 @@ public class MainActivity extends Activity {
                             name.contains("Gprinter") || name.contains("XP") || name.contains("PT") ||
                             name.contains("MPT") || name.contains("HM") || name.contains("MTP") ||
                             name.contains("Thermal") || name.contains("BT"))) {
-                        scanner.stopScan(this);
+                        // Stop scan BEFORE connecting
+                        stopActiveScan();
                         connectToDevice(device);
                     }
                 }
-            });
+            };
 
-            new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                try { scanner.stopScan(new ScanCallback() {}); } catch (Exception e) {}
-                if (writeCharacteristic == null) {
-                    runOnUiThread(() -> {
-                        webView.evaluateJavascript("window.__btStatus && window.__btStatus('No printer found')", null);
-                        Toast.makeText(MainActivity.this, "No printer found nearby", Toast.LENGTH_LONG).show();
-                    });
+            activeScanner = scanner;
+            activeScanCallback = callback;
+            scanner.startScan(callback);
+
+            // Timeout: stop scan after 10 seconds if no printer found
+            mainHandler.postDelayed(() -> {
+                if (activeScanCallback != null) {
+                    stopActiveScan();
+                    if (writeCharacteristic == null) {
+                        runOnUiThread(() -> {
+                            webView.evaluateJavascript("window.__btStatus && window.__btStatus('No printer found')", null);
+                            Toast.makeText(MainActivity.this, "No printer found nearby", Toast.LENGTH_LONG).show();
+                        });
+                    }
                 }
             }, 10000);
         }
@@ -168,6 +211,10 @@ public class MainActivity extends Activity {
                 public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
                     if (newState == BluetoothGatt.STATE_CONNECTED) {
                         gatt.discoverServices();
+                    } else if (newState == BluetoothGatt.STATE_DISCONNECTED) {
+                        writeCharacteristic = null;
+                        writeQueue.clear();
+                        writeInProgress.set(false);
                     }
                 }
 
@@ -175,8 +222,8 @@ public class MainActivity extends Activity {
                 public void onServicesDiscovered(BluetoothGatt gatt, int status) {
                     for (BluetoothGattService service : gatt.getServices()) {
                         for (BluetoothGattCharacteristic c : service.getCharacteristics()) {
-                            if ((c.getProperties() & BluetoothGattCharacteristic.PROPERTY_WRITE) != 0 ||
-                                (c.getProperties() & BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE) != 0) {
+                            if ((c.getProperties() & BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE) != 0 ||
+                                (c.getProperties() & BluetoothGattCharacteristic.PROPERTY_WRITE) != 0) {
                                 writeCharacteristic = c;
                                 runOnUiThread(() -> {
                                     webView.evaluateJavascript("window.__btStatus && window.__btStatus('connected')", null);
@@ -185,6 +232,17 @@ public class MainActivity extends Activity {
                                 return;
                             }
                         }
+                    }
+                }
+
+                @Override
+                public void onCharacteristicWrite(BluetoothGatt gatt,
+                        BluetoothGattCharacteristic characteristic, int status) {
+                    // Previous chunk done — send next one
+                    writeInProgress.set(false);
+                    if (!writeQueue.isEmpty()) {
+                        // Small delay to let the printer buffer settle
+                        mainHandler.postDelayed(MainActivity.this::drainWriteQueue, 20);
                     }
                 }
             });
@@ -200,14 +258,17 @@ public class MainActivity extends Activity {
             if (writeCharacteristic == null || bluetoothGatt == null) return false;
             try {
                 byte[] data = android.util.Base64.decode(base64Data, android.util.Base64.DEFAULT);
+                // Enqueue all 20-byte chunks
+                writeQueue.clear();
                 for (int i = 0; i < data.length; i += 20) {
                     int end = Math.min(i + 20, data.length);
                     byte[] chunk = new byte[end - i];
                     System.arraycopy(data, i, chunk, 0, chunk.length);
-                    writeCharacteristic.setValue(chunk);
-                    bluetoothGatt.writeCharacteristic(writeCharacteristic);
-                    Thread.sleep(50);
+                    writeQueue.add(chunk);
                 }
+                // Start draining (callback-driven, no Thread.sleep)
+                writeInProgress.set(false);
+                drainWriteQueue();
                 return true;
             } catch (Exception e) {
                 return false;
@@ -227,6 +288,10 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        if (bluetoothGatt != null) bluetoothGatt.close();
+        stopActiveScan();
+        if (bluetoothGatt != null) {
+            bluetoothGatt.close();
+            bluetoothGatt = null;
+        }
     }
 }

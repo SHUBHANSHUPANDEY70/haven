@@ -4,6 +4,11 @@ import { HashRouter, Routes, Route } from 'react-router-dom'
 import './index.css'
 import POS from './pages/POS'
 import Dashboard from './pages/Dashboard'
+import { wakeBackend } from './utils/api'
+
+// Ping the backend immediately so Render's free tier wakes up
+// before the user tries to place their first order.
+wakeBackend()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
