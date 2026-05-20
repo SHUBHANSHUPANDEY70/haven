@@ -109,14 +109,26 @@ export default function POS() {
 
   const handlePrint = async () => {
     if (cart.length === 0) return
+
+    // On web Bluetooth, check connection before even saving the order
+    if (!window.AndroidBluetooth && !isPrinterConnected()) {
+      showToastMsg('Connect printer first (tap 🖨️)')
+      return
+    }
+
     setLoading(true)
     try {
       const order = await createOrder(cart, paymentMethod, total)
       try {
         await printReceipt(cart, order.invoiceNo, paymentMethod, gstAmount)
         showToastMsg(`Bill #${order.invoiceNo} printed & saved!`)
-      } catch {
-        showToastMsg(`Bill #${order.invoiceNo} saved! (Print failed)`)
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : ''
+        if (msg === 'NOT_CONNECTED') {
+          showToastMsg(`Bill #${order.invoiceNo} saved! Connect printer & reprint`)
+        } else {
+          showToastMsg(`Bill #${order.invoiceNo} saved! (Print failed)`)
+        }
       }
       setCart([])
       setShowCart(false)
@@ -282,7 +294,7 @@ export default function POS() {
             </div>
             <button onClick={handlePrint} disabled={cart.length === 0 || loading}
               className="w-full py-3 md:py-4 bg-amber-500 hover:bg-amber-400 disabled:bg-gray-700 disabled:text-gray-500 text-black font-bold text-sm md:text-lg rounded-xl active:scale-[0.98]">
-              {loading ? '⏳ Processing...' : '🖨️ Print & Save Bill'}
+              {loading ? '⏳ Processing...' : !isPrinterConnected() && !window.AndroidBluetooth ? '⚠️ Connect Printer First' : '🖨️ Print & Save Bill'}
             </button>
           </div>
         </div>

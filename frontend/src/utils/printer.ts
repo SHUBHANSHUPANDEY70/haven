@@ -265,11 +265,12 @@ export async function printReceipt(
   }
 
   // ── Web Bluetooth ──
-  // If char is null or stale, reconnect (up to 1 retry)
+  // Do NOT auto-connect here — the browser Bluetooth picker mid-print
+  // confuses users (they think selecting the printer IS the print action).
+  // If not connected, fail clearly so the UI can tell the user to connect first.
   if (!writeChar) {
-    log('No char — connecting...')
-    const ok = await webBluetoothConnect()
-    if (!ok) { log('FAILED: Could not connect'); throw new Error('Printer not connected') }
+    log('FAILED: Not connected — user must tap the Printer button first')
+    throw new Error('NOT_CONNECTED')
   }
 
   log('Sending ' + combined.length + ' bytes to ' + writeChar!.uuid)
