@@ -6,11 +6,18 @@ import { getMenu, createOrder } from '../utils/api'
 import { printReceipt, connectPrinter, isPrinterConnected } from '../utils/printer'
 
 export default function POS() {
-  const [menu, setMenu] = useState<MenuItem[]>(menuData)
-  const [categories, setCategories] = useState<string[]>([...new Set(menuData.map(i => i.category))])
+  const [menu, setMenu] = useState<MenuItem[]>(() => {
+    return JSON.parse(localStorage.getItem('haven_menu') || 'null') || menuData
+  })
+  const [categories, setCategories] = useState<string[]>(() => {
+    const initialMenu = JSON.parse(localStorage.getItem('haven_menu') || 'null') || menuData
+    return [...new Set(initialMenu.map((i: MenuItem) => i.category))] as string[]
+  })
   const [activeCategory, setActiveCategory] = useState('All')
   const [search, setSearch] = useState('')
-  const [cart, setCart] = useState<CartItem[]>([])
+  const [cart, setCart] = useState<CartItem[]>(() => {
+    return JSON.parse(localStorage.getItem('haven_cart') || '[]')
+  })
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'digital'>('cash')
   const [loading, setLoading] = useState(false)
   const [printerStatus, setPrinterStatus] = useState(false)
@@ -29,11 +36,32 @@ export default function POS() {
   useEffect(() => {
     getMenu().then(items => {
       if (items.length > 0) {
-        setMenu(items)
-        setCategories([...new Set(items.map(i => i.category))])
+        const localMenu: MenuItem[] = JSON.parse(localStorage.getItem('haven_menu') || 'null')
+        if (localMenu) {
+          // Keep all custom added items that don't exist in backend by name
+          const customItems = localMenu.filter(l => !items.some(i => i.name.toLowerCase() === l.name.toLowerCase()))
+          const merged = [...items, ...customItems]
+          setMenu(merged)
+          setCategories([...new Set(merged.map(i => i.category))])
+          localStorage.setItem('haven_menu', JSON.stringify(merged))
+        } else {
+          setMenu(items)
+          setCategories([...new Set(items.map(i => i.category))])
+          localStorage.setItem('haven_menu', JSON.stringify(items))
+        }
       }
-    }).catch(() => {})
+    }).catch(() => {
+      const localMenu = JSON.parse(localStorage.getItem('haven_menu') || 'null')
+      if (localMenu) {
+        setMenu(localMenu)
+        setCategories([...new Set(localMenu.map((i: MenuItem) => i.category))] as string[])
+      }
+    })
   }, [])
+
+  useEffect(() => {
+    localStorage.setItem('haven_cart', JSON.stringify(cart))
+  }, [cart])
 
   useEffect(() => { setActiveCategory('All') }, [categories])
 
