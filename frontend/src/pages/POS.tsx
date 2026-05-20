@@ -1,45 +1,49 @@
-import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { useState, useEffect, useCallback } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import type { MenuItem, CartItem } from '../types'
 import { menuData } from '../data/menu'
 import { getMenu, createOrder } from '../utils/api'
-import { printReceipt, connectPrinter, isPrinterConnected } from '../utils/printer'
+import { printReceipt, isPrinterConnected } from '../utils/printer'
+import { getBill, updateBill, deleteBill } from './BillsHome'
 
 export default function POS() {
-  const [menu, setMenu] = useState<MenuItem[]>(() => {
-    return JSON.parse(localStorage.getItem('haven_menu') || 'null') || menuData
-  })
+  const { billId } = useParams<{ billId: string }>()
+  const navigate = useNavigate()
+
+  // Load bill from localStorage
+  const bill = billId ? getBill(billId) : null
+
+  const [menu, setMenu] = useState<MenuItem[]>(() =>
+    JSON.parse(localStorage.getItem('haven_menu') || 'null') || menuData
+  )
   const [categories, setCategories] = useState<string[]>(() => {
-    const initialMenu = JSON.parse(localStorage.getItem('haven_menu') || 'null') || menuData
-    return [...new Set(initialMenu.map((i: MenuItem) => i.category))] as string[]
+    const m = JSON.parse(localStorage.getItem('haven_menu') || 'null') || menuData
+    return [...new Set(m.map((i: MenuItem) => i.category))] as string[]
   })
   const [activeCategory, setActiveCategory] = useState('All')
   const [search, setSearch] = useState('')
-  const [cart, setCart] = useState<CartItem[]>(() => {
-    return JSON.parse(localStorage.getItem('haven_cart') || '[]')
-  })
-  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'digital'>('cash')
+
+  // Cart and bill settings — initialised from the saved bill
+  const [cart, setCart] = useState<CartItem[]>(bill?.items || [])
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'digital'>(bill?.paymentMethod || 'cash')
+  const [applyGST, setApplyGST] = useState(bill?.applyGST || false)
+
   const [loading, setLoading] = useState(false)
-  const [printerStatus, setPrinterStatus] = useState(false)
-  const [printerConnecting, setPrinterConnecting] = useState(false)
   const [toasts, setToasts] = useState<{ id: number; msg: string; type: 'add' | 'remove' | 'info'; leaving: boolean }[]>([])
   const [showCart, setShowCart] = useState(false)
-  const [applyGST, setApplyGST] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
-  const addToast = (msg: string, type: 'add' | 'remove' | 'info' = 'info') => {
-    const id = Date.now() + Math.random()
-    setToasts(prev => [...prev, { id, msg, type, leaving: false }])
-    // Start fade-out after 1.4s, remove after 1.65s
-    setTimeout(() => setToasts(prev => prev.map(t => t.id === id ? { ...t, leaving: true } : t)), 1400)
-    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 1650)
-  }
+  // Redirect if bill doesn't exist
+  useEffect(() => {
+    if (!bill) navigate('/', { replace: true })
+  }, [bill, navigate])
 
+  // Fetch menu from backend
   useEffect(() => {
     getMenu().then(items => {
       if (items.length > 0) {
         const localMenu: MenuItem[] = JSON.parse(localStorage.getItem('haven_menu') || 'null')
         if (localMenu) {
-          // Keep all custom added items that don't exist in backend by name
           const customItems = localMenu.filter(l => !items.some(i => i.name.toLowerCase() === l.name.toLowerCase()))
           const merged = [...items, ...customItems]
           setMenu(merged)
@@ -60,11 +64,28 @@ export default function POS() {
     })
   }, [])
 
-  useEffect(() => {
-    localStorage.setItem('haven_cart', JSON.stringify(cart))
-  }, [cart])
-
   useEffect(() => { setActiveCategory('All') }, [categories])
+
+  // Persist cart changes back to the bill in localStorage
+  const persistBill = useCallback((
+    newCart: CartItem[],
+    newPayment: 'cash' | 'digital',
+    newGST: boolean
+  ) => {
+    if (!bill) return
+    updateBill({ ...bill, items: newCart, paymentMethod: newPayment, applyGST: newGST })
+  }, [bill])
+
+  useEffect(() => {
+    persistBill(cart, paymentMethod, applyGST)
+  }, [cart, paymentMethod, applyGST, persistBill])
+
+  const addToast = (msg: string, type: 'add' | 'remove' | 'info' = 'info') => {
+    const id = Date.now() + Math.random()
+    setToasts(prev => [...prev, { id, msg, type, leaving: false }])
+    setTimeout(() => setToasts(prev => prev.map(t => t.id === id ? { ...t, leaving: true } : t)), 1400)
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 1650)
+  }
 
   const filteredItems = menu.filter(i =>
     (activeCategory === 'All' || i.category === activeCategory) &&
@@ -110,9 +131,8 @@ export default function POS() {
   const handlePrint = async () => {
     if (cart.length === 0) return
 
-    // On web Bluetooth, check connection before even saving the order
     if (!window.AndroidBluetooth && !isPrinterConnected()) {
-      showToastMsg('Connect printer first (tap 🖨️)')
+      addToast('Connect printer first (tap 🖨️ on home screen)', 'info')
       return
     }
 
@@ -121,17 +141,16 @@ export default function POS() {
       const order = await createOrder(cart, paymentMethod, total)
       try {
         await printReceipt(cart, order.invoiceNo, paymentMethod, gstAmount)
-        showToastMsg(`Bill #${order.invoiceNo} printed & saved!`)
+        addToast(`Bill #${order.invoiceNo} printed & saved!`, 'info')
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : ''
-        if (msg === 'NOT_CONNECTED') {
-          showToastMsg(`Bill #${order.invoiceNo} saved! Connect printer & reprint`)
-        } else {
-          showToastMsg(`Bill #${order.invoiceNo} saved! (Print failed)`)
-        }
+        addToast(msg === 'NOT_CONNECTED'
+          ? `Bill #${order.invoiceNo} saved! Connect printer & reprint`
+          : `Bill #${order.invoiceNo} saved! (Print failed)`, 'info')
       }
-      setCart([])
-      setShowCart(false)
+      // Delete this bill and go back to home
+      if (billId) deleteBill(billId)
+      navigate('/', { replace: true })
     } catch {
       const invoiceNo = parseInt(localStorage.getItem('haven_invoice') || '0') + 1
       localStorage.setItem('haven_invoice', invoiceNo.toString())
@@ -140,44 +159,44 @@ export default function POS() {
       localStorage.setItem('haven_orders', JSON.stringify(orders))
       try {
         await printReceipt(cart, invoiceNo, paymentMethod, gstAmount)
-        showToastMsg(`Bill #${invoiceNo} printed & saved!`)
+        addToast(`Bill #${invoiceNo} printed & saved!`, 'info')
       } catch {
-        showToastMsg(`Bill #${invoiceNo} saved!`)
+        addToast(`Bill #${invoiceNo} saved!`, 'info')
       }
-      setCart([])
-      setShowCart(false)
+      if (billId) deleteBill(billId)
+      navigate('/', { replace: true })
     }
     setLoading(false)
   }
 
-  const handleConnect = async () => {
-    if (printerConnecting) return
-    setPrinterConnecting(true)
-    const ok = await connectPrinter()
-    setPrinterStatus(ok)
-    setPrinterConnecting(false)
-    showToastMsg(ok ? 'Printer connected!' : 'Connection failed')
+  const handleDeleteBill = () => {
+    if (billId) deleteBill(billId)
+    navigate('/', { replace: true })
   }
 
-  const showToastMsg = (msg: string) => addToast(msg, 'info')
+  if (!bill) return null
 
   return (
     <div className="h-screen flex flex-col bg-gray-900 text-white overflow-hidden">
       {/* Header */}
       <header className="flex items-center justify-between px-3 py-2 bg-gray-800 border-b border-gray-700">
-        <h1 className="text-lg md:text-xl font-bold text-amber-400">☕ Haven Cafe</h1>
         <div className="flex items-center gap-2">
-          <button onClick={handleConnect} disabled={printerConnecting}
-            className={`px-2 py-1 rounded text-[10px] md:text-xs font-medium transition-colors ${
-              printerConnecting ? 'bg-yellow-600 cursor-wait' :
-              printerStatus || isPrinterConnected() ? 'bg-green-600' : 'bg-gray-600 hover:bg-gray-500'
-            }`}>
-            🖨️ {printerConnecting ? 'Scanning...' : printerStatus || isPrinterConnected() ? 'OK' : 'Printer'}
+          <button onClick={() => navigate('/')}
+            className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs font-medium">
+            ← Bills
           </button>
-          <Link to="/admin/dashboard" className="px-2 py-1 bg-indigo-600 hover:bg-indigo-500 rounded text-[10px] md:text-xs font-medium">
-            📊
-          </Link>
-          {/* Mobile cart toggle */}
+          <h1 className="text-base font-bold text-amber-400">{bill.label}</h1>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className={`px-2 py-1 rounded text-[10px] font-medium ${
+            isPrinterConnected() ? 'bg-green-600' : 'bg-gray-600'
+          }`}>
+            🖨️ {isPrinterConnected() ? 'OK' : 'No Printer'}
+          </span>
+          <button onClick={() => setShowDeleteConfirm(true)}
+            className="px-2 py-1 bg-red-900/40 hover:bg-red-900/70 text-red-400 rounded text-[10px] font-medium">
+            🗑
+          </button>
           <button onClick={() => setShowCart(!showCart)} className="md:hidden px-2 py-1 bg-amber-500 text-black rounded text-[10px] font-bold relative">
             🛒 {cartCount > 0 && <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] w-4 h-4 rounded-full flex items-center justify-center">{cartCount}</span>}
           </button>
@@ -223,7 +242,7 @@ export default function POS() {
             <div className="md:hidden flex items-center justify-between px-3 py-2 bg-gray-800 border-t border-gray-700">
               <span className="text-sm font-bold text-amber-400">₹{total.toFixed(0)} • {cartCount} items</span>
               <button onClick={() => setShowCart(true)} className="px-4 py-2 bg-amber-500 text-black font-bold text-sm rounded-lg">
-                View Cart →
+                View Bill →
               </button>
             </div>
           )}
@@ -233,8 +252,8 @@ export default function POS() {
         <div className={`${showCart ? 'flex' : 'hidden md:flex'} w-full md:w-[35%] flex-col absolute md:relative inset-0 md:inset-auto bg-gray-900 z-10`}>
           <div className="p-3 border-b border-gray-700 bg-gray-800 flex items-center justify-between">
             <div>
-              <h2 className="font-bold text-base md:text-lg">Current Bill</h2>
-              <p className="text-gray-400 text-xs">{cart.length} items</p>
+              <h2 className="font-bold text-base md:text-lg">{bill.label}</h2>
+              <p className="text-gray-400 text-xs">{cart.length} item types</p>
             </div>
             <button onClick={() => setShowCart(false)} className="md:hidden px-2 py-1 bg-gray-700 rounded text-xs">← Menu</button>
           </div>
@@ -267,14 +286,9 @@ export default function POS() {
               <span className="text-gray-400">Subtotal</span>
               <span className="font-bold">₹{subtotal.toFixed(2)}</span>
             </div>
-            {/* GST Checkbox */}
             <label className="flex items-center gap-2 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={applyGST}
-                onChange={e => setApplyGST(e.target.checked)}
-                className="w-4 h-4 accent-amber-500 cursor-pointer"
-              />
+              <input type="checkbox" checked={applyGST} onChange={e => setApplyGST(e.target.checked)}
+                className="w-4 h-4 accent-amber-500 cursor-pointer" />
               <span className="text-sm text-gray-300">Apply GST (5%)</span>
               {applyGST && <span className="ml-auto text-sm text-amber-400 font-semibold">+₹{gstAmount.toFixed(2)}</span>}
             </label>
@@ -300,7 +314,27 @@ export default function POS() {
         </div>
       </div>
 
-      {/* Stacked Toasts */}
+      {/* Delete confirm modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-gray-800 border border-gray-700 rounded-2xl p-6 w-full max-w-sm">
+            <h3 className="text-lg font-bold mb-2">Delete {bill.label}?</h3>
+            <p className="text-sm text-gray-400 mb-5">This will discard all items in this bill. This cannot be undone.</p>
+            <div className="flex gap-2">
+              <button onClick={() => setShowDeleteConfirm(false)}
+                className="flex-1 py-2.5 bg-gray-700 hover:bg-gray-600 rounded-xl text-sm font-medium">
+                Cancel
+              </button>
+              <button onClick={handleDeleteBill}
+                className="flex-1 py-2.5 bg-red-600 hover:bg-red-500 rounded-xl text-sm font-bold">
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toasts */}
       <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex flex-col items-center gap-2 pointer-events-none">
         {toasts.map(t => (
           <div key={t.id}

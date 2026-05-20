@@ -123,7 +123,7 @@ export default function Dashboard() {
     <div className="min-h-screen bg-gray-900 text-white p-3 md:p-6">
       <div className="flex items-center justify-between mb-5">
         <h1 className="text-xl md:text-2xl font-bold text-amber-400">📊 Admin Dashboard</h1>
-        <Link to="/" className="px-3 py-2 bg-amber-500 text-black font-bold rounded-lg hover:bg-amber-400 text-xs md:text-sm">← POS</Link>
+        <Link to="/" className="px-3 py-2 bg-amber-500 text-black font-bold rounded-lg hover:bg-amber-400 text-xs md:text-sm">← Bills</Link>
       </div>
 
       {/* Tab nav */}

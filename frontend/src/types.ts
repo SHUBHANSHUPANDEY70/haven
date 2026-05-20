@@ -30,3 +30,12 @@ export interface DashboardStats {
   cashTotal: number
   digitalTotal: number
 }
+
+export interface Bill {
+  id: string           // unique bill id e.g. "bill_1"
+  label: string        // display name e.g. "Bill 1"
+  items: CartItem[]
+  paymentMethod: 'cash' | 'digital'
+  applyGST: boolean
+  createdAt: string
+}
