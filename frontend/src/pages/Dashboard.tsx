@@ -2,10 +2,10 @@ import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import type { MenuItem } from '../types'
 import { menuData } from '../data/menu'
-import { getOrders, getDashboard } from '../utils/api'
+import { getOrders, getDashboard, deleteOrder, deleteOlderOrders } from '../utils/api'
 
 interface OrderItem { name: string; price: number; quantity: number; total: number }
-interface Order { invoiceNo: number; items: OrderItem[]; subtotal: number; total: number; paymentMethod: string; createdAt: string }
+interface Order { id?: string; invoiceNo: number; items: OrderItem[]; subtotal: number; total: number; paymentMethod: string; createdAt: string }
 interface Stats { totalRevenue: number; totalBills: number; cashTotal: number; digitalTotal: number; topItems: { name: string; quantity: number }[] }
 
 type DateFilter = 'today' | 'week' | 'all'
@@ -29,7 +29,12 @@ export default function Dashboard() {
   const [tab, setTab] = useState<'dashboard' | 'menu'>('dashboard')
   const [expandedOrder, setExpandedOrder] = useState<number | null>(null)
 
-  useEffect(() => {
+  // Deletion and Pruning States
+  const [showPruneModal, setShowPruneModal] = useState(false)
+  const [pruneOption, setPruneOption] = useState<'today' | 'week' | 'month' | 'all'>('week')
+  const [isDeleting, setIsDeleting] = useState(false)
+
+  const loadData = () => {
     getOrders().then(setOrders).catch(() => {
       setOrders(JSON.parse(localStorage.getItem('haven_orders') || '[]'))
     })
@@ -47,7 +52,108 @@ export default function Dashboard() {
         topItems: Object.entries(itemCount).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([name, quantity]) => ({ name, quantity }))
       })
     })
+  }
+
+  useEffect(() => {
+    loadData()
   }, [])
+
+  const handleDeleteOrder = async (order: Order) => {
+    if (!window.confirm(`Are you sure you want to permanently delete invoice #${order.invoiceNo}?`)) return
+
+    try {
+      if (order.id) {
+        await deleteOrder(order.id)
+      }
+      
+      const updatedOrders = orders.filter(o => o.invoiceNo !== order.invoiceNo)
+      setOrders(updatedOrders)
+      localStorage.setItem('haven_orders', JSON.stringify(updatedOrders))
+      
+      // optimistically update local stats
+      refreshLocalStats(updatedOrders)
+      
+      // refresh database sync in background
+      loadData()
+    } catch (err: any) {
+      console.error(err)
+      const updatedOrders = orders.filter(o => o.invoiceNo !== order.invoiceNo)
+      setOrders(updatedOrders)
+      localStorage.setItem('haven_orders', JSON.stringify(updatedOrders))
+      refreshLocalStats(updatedOrders)
+      alert(`Deleted locally. (Server error: ${err.message || 'connection issue'})`)
+    }
+  }
+
+  const handlePruneOrders = async () => {
+    let cutoff = new Date()
+    let label = ''
+
+    if (pruneOption === 'today') {
+      cutoff.setHours(0, 0, 0, 0)
+      label = "older than today"
+    } else if (pruneOption === 'week') {
+      cutoff.setDate(cutoff.getDate() - 7)
+      label = "older than 7 days"
+    } else if (pruneOption === 'month') {
+      cutoff.setDate(cutoff.getDate() - 30)
+      label = "older than 30 days"
+    } else if (pruneOption === 'all') {
+      cutoff = new Date() // Deletes everything
+      label = "all"
+    }
+
+    if (!window.confirm(`⚠️ WARNING: Are you sure you want to permanently delete ${label} orders? This cannot be undone.`)) {
+      return
+    }
+
+    setIsDeleting(true)
+    try {
+      await deleteOlderOrders(cutoff.toISOString())
+      
+      const updatedOrders = orders.filter(o => {
+        const d = new Date(o.createdAt)
+        return d >= cutoff
+      })
+      setOrders(updatedOrders)
+      localStorage.setItem('haven_orders', JSON.stringify(updatedOrders))
+      refreshLocalStats(updatedOrders)
+      
+      alert(`Successfully deleted ${label} orders.`)
+      setShowPruneModal(false)
+      loadData()
+    } catch (err: any) {
+      console.error(err)
+      const updatedOrders = orders.filter(o => {
+        const d = new Date(o.createdAt)
+        return d >= cutoff
+      })
+      setOrders(updatedOrders)
+      localStorage.setItem('haven_orders', JSON.stringify(updatedOrders))
+      refreshLocalStats(updatedOrders)
+      
+      alert(`Pruned locally. (Server error: ${err.message || 'connection issue'})`)
+      setShowPruneModal(false)
+      loadData()
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
+  const refreshLocalStats = (currentOrders: Order[]) => {
+    const today = new Date().toDateString()
+    const todayOrders = currentOrders.filter(o => new Date(o.createdAt).toDateString() === today)
+    const itemCount: Record<string, number> = {}
+    todayOrders.forEach(o => o.items.forEach(i => { itemCount[i.name] = (itemCount[i.name] || 0) + i.quantity }))
+    setStats({
+      totalRevenue: todayOrders.reduce((s, o) => s + o.total, 0),
+      totalBills: todayOrders.length,
+      cashTotal: todayOrders.filter(o => o.paymentMethod === 'cash').reduce((s, o) => s + o.total, 0),
+      digitalTotal: todayOrders.filter(o => o.paymentMethod === 'digital').reduce((s, o) => s + o.total, 0),
+      topItems: Object.entries(itemCount).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([name, quantity]) => ({ name, quantity }))
+    })
+  }
+
 
   // --- derived data ---
   const now = new Date()
@@ -280,7 +386,15 @@ export default function Dashboard() {
           <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
             <div className="p-4 border-b border-gray-700">
               <div className="flex flex-col md:flex-row gap-3 items-start md:items-center justify-between">
-                <h3 className="font-bold text-sm text-gray-300">📋 Orders & Timeline</h3>
+                <div className="flex items-center gap-2">
+                  <h3 className="font-bold text-sm text-gray-300">📋 Orders & Timeline</h3>
+                  <button
+                    onClick={() => setShowPruneModal(true)}
+                    className="px-2.5 py-1 bg-red-500/10 border border-red-500/30 hover:bg-red-500 hover:text-white text-red-400 rounded-lg text-[11px] font-bold flex items-center gap-1 transition-all"
+                  >
+                    🧹 Clean History
+                  </button>
+                </div>
                 <div className="flex flex-wrap gap-2">
                   {/* Date filter */}
                   {(['today', 'week', 'all'] as DateFilter[]).map(f => (
@@ -352,9 +466,17 @@ export default function Dashboard() {
                               <span className="w-16 text-right text-amber-400 font-semibold">₹{item.total}</span>
                             </div>
                           ))}
-                          <div className="flex text-xs font-bold pt-1 border-t border-gray-700 mt-1">
-                            <span className="flex-1 text-gray-300">Total</span>
-                            <span className="w-16 text-right text-amber-400">₹{order.total.toFixed(2)}</span>
+                          <div className="flex items-center justify-between pt-2 border-t border-gray-700 mt-2">
+                            <button
+                              onClick={() => handleDeleteOrder(order)}
+                              className="px-2.5 py-1 text-[11px] font-bold bg-red-500/10 hover:bg-red-600 border border-red-500/20 text-red-400 hover:text-white rounded-lg flex items-center gap-1 transition-all"
+                            >
+                              🗑️ Delete Order
+                            </button>
+                            <div className="flex text-xs font-bold gap-2 items-center">
+                              <span className="text-gray-400">Total</span>
+                              <span className="text-amber-400">₹{order.total.toFixed(2)}</span>
+                            </div>
                           </div>
                         </div>
                       )}
@@ -364,6 +486,79 @@ export default function Dashboard() {
               }
             </div>
           </div>
+
+          {/* Prune Modal */}
+          {showPruneModal && (
+            <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fadeIn">
+              <div className="bg-gray-800 border border-gray-700 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl animate-scaleIn">
+                <div className="p-5 border-b border-gray-700 bg-gray-900/50 flex items-center justify-between">
+                  <h3 className="font-bold text-base text-red-400 flex items-center gap-2">
+                    ⚠️ Clean Order History
+                  </h3>
+                  <button onClick={() => setShowPruneModal(false)} className="text-gray-400 hover:text-white transition-colors">
+                    ✕
+                  </button>
+                </div>
+                
+                <div className="p-5 space-y-4">
+                  <p className="text-sm text-gray-300">
+                    Select which order records you want to permanently delete from the database:
+                  </p>
+                  
+                  <div className="space-y-2">
+                    {[
+                      { value: 'week', label: 'Older than 7 Days (Recommended)', desc: 'Keeps recent order history' },
+                      { value: 'month', label: 'Older than 30 Days', desc: 'Keeps last month of orders' },
+                      { value: 'today', label: 'Older than Today', desc: 'Deletes everything before today' },
+                      { value: 'all', label: 'Delete All Records', desc: '⚠️ Complete reset of all history' },
+                    ].map(opt => (
+                      <label
+                        key={opt.value}
+                        className={`flex items-start gap-3 p-3 rounded-xl border transition-all cursor-pointer ${
+                          pruneOption === opt.value
+                            ? 'bg-red-500/10 border-red-500/50 text-white'
+                            : 'bg-gray-700/30 border-gray-700 hover:bg-gray-700/50 text-gray-300'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="pruneOption"
+                          checked={pruneOption === opt.value}
+                          onChange={() => setPruneOption(opt.value as any)}
+                          className="mt-1 accent-red-500"
+                        />
+                        <div>
+                          <p className="text-sm font-bold">{opt.label}</p>
+                          <p className="text-xs text-gray-400 mt-0.5">{opt.desc}</p>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                  
+                  <div className="bg-red-950/30 border border-red-900/50 p-3 rounded-lg text-[11px] text-red-300 leading-relaxed">
+                    <strong>Important:</strong> Deleting records is permanent. Running sales, stats, and revenue calculations for the deleted periods will be cleared or reset.
+                  </div>
+                </div>
+                
+                <div className="p-5 bg-gray-900/30 border-t border-gray-700 flex gap-2 justify-end">
+                  <button
+                    onClick={() => setShowPruneModal(false)}
+                    className="px-4 py-2 rounded-lg text-sm bg-gray-700 hover:bg-gray-600 font-bold transition-all"
+                    disabled={isDeleting}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handlePruneOrders}
+                    className="px-4 py-2 rounded-lg text-sm bg-red-600 hover:bg-red-500 font-bold transition-all flex items-center gap-1"
+                    disabled={isDeleting}
+                  >
+                    {isDeleting ? 'Deleting...' : '🗑️ Confirm Delete'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
         </div>
       )}

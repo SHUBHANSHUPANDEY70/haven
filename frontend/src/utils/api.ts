@@ -23,3 +23,8 @@ export const createOrder = (items: CartItem[], paymentMethod: string, total?: nu
 export const getOrders = () => api.get<Order[]>('/orders').then(r => r.data)
 
 export const getDashboard = () => api.get<DashboardStats>('/dashboard').then(r => r.data)
+
+export const deleteOrder = (id: string) => api.delete<{ message: string }>(`/orders/${id}`).then(r => r.data)
+
+export const deleteOlderOrders = (cutoff: string) => api.delete<{ message: string; deletedCount: number }>(`/orders?cutoff=${encodeURIComponent(cutoff)}`).then(r => r.data)
+

@@ -17,6 +17,8 @@ func Setup() *gin.Engine {
 		api.HEAD("/menu", handlers.GetMenu)
 		api.POST("/orders", handlers.CreateOrder)
 		api.GET("/orders", handlers.GetOrders)
+		api.DELETE("/orders/:id", handlers.DeleteOrder)
+		api.DELETE("/orders", handlers.DeleteOlderOrders)
 		api.GET("/dashboard", handlers.GetDashboard)
 	}
 	return r

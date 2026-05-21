@@ -150,3 +150,58 @@ func GetDashboard(c *gin.Context) {
 
 	c.JSON(http.StatusOK, stats)
 }
+
+func DeleteOrder(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := primitive.ObjectIDFromHex(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid order ID"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	res, err := database.OrderCollection().DeleteOne(ctx, bson.M{"_id": id})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	if res.DeletedCount == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Order not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Order deleted successfully"})
+}
+
+func DeleteOlderOrders(c *gin.Context) {
+	cutoffStr := c.Query("cutoff")
+	if cutoffStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "cutoff query parameter is required"})
+		return
+	}
+
+	cutoffTime, err := time.Parse(time.RFC3339, cutoffStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid cutoff date format. Must be RFC3339"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	filter := bson.M{"createdAt": bson.M{"$lt": cutoffTime}}
+	res, err := database.OrderCollection().DeleteMany(ctx, filter)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":      "Older orders deleted successfully",
+		"deletedCount": res.DeletedCount,
+	})
+}
+
