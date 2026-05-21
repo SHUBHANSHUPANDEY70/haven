@@ -20,7 +20,7 @@ export const createOrder = (items: CartItem[], paymentMethod: string, total?: nu
   return api.post<Order>('/orders', { items, subtotal, total: total ?? subtotal, paymentMethod }).then(r => r.data)
 }
 
-export const getOrders = () => api.get<Order[]>('/orders').then(r => r.data)
+export const getOrders = () => api.get<Order[]>('/orders').then(r => r.data ?? [])
 
 export const getDashboard = () => api.get<DashboardStats>('/dashboard').then(r => r.data)
 
