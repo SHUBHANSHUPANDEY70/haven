@@ -45,7 +45,7 @@ export default function POS() {
     getMenu().then(items => {
       if (items.length > 0) {
         const localMenu: MenuItem[] = JSON.parse(localStorage.getItem('haven_menu') || 'null')
-        if (localMenu) {
+        if (Array.isArray(localMenu)) {
           const customItems = localMenu.filter(l => !items.some(i => i.name.toLowerCase() === l.name.toLowerCase()))
           const merged = [...items, ...customItems]
           setMenu(merged)
