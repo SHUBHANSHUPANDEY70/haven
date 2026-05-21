@@ -13,11 +13,13 @@ export default function POS() {
   // Load bill from localStorage
   const bill = billId ? getBill(billId) : null
 
-  const [menu, setMenu] = useState<MenuItem[]>(() =>
-    JSON.parse(localStorage.getItem('haven_menu') || 'null') || menuData
-  )
+  const [menu, setMenu] = useState<MenuItem[]>(() => {
+    const stored = JSON.parse(localStorage.getItem('haven_menu') || 'null')
+    return Array.isArray(stored) ? stored : menuData
+  })
   const [categories, setCategories] = useState<string[]>(() => {
-    const m = JSON.parse(localStorage.getItem('haven_menu') || 'null') || menuData
+    const stored = JSON.parse(localStorage.getItem('haven_menu') || 'null')
+    const m: MenuItem[] = Array.isArray(stored) ? stored : menuData
     return [...new Set(m.map((i: MenuItem) => i.category))] as string[]
   })
   const [activeCategory, setActiveCategory] = useState('All')
