@@ -25,6 +25,10 @@ export default function Dashboard() {
   const [editId, setEditId] = useState<string | null>(null)
   const [editPrice, setEditPrice] = useState('')
   const [newItem, setNewItem] = useState({ name: '', price: '', category: '' })
+  const [newCategory, setNewCategory] = useState('')
+  const [customCategories, setCustomCategories] = useState<string[]>(() => {
+    return JSON.parse(localStorage.getItem('haven_custom_categories') || '[]')
+  })
   const [menuSearch, setMenuSearch] = useState('')
   const [tab, setTab] = useState<'dashboard' | 'menu'>('dashboard')
   const [expandedOrder, setExpandedOrder] = useState<number | null>(null)
@@ -218,11 +222,29 @@ export default function Dashboard() {
   }
   const handleAddItem = () => {
     if (!newItem.name || !newItem.price || !newItem.category) return
-    saveMenu([...menu, { id: Date.now().toString(), name: newItem.name, price: parseFloat(newItem.price), category: newItem.category }])
+    const item: MenuItem = { id: `custom_${Date.now()}`, name: newItem.name, price: parseFloat(newItem.price), category: newItem.category }
+    saveMenu([...menu, item])
+    // Persist in a separate key that is never overwritten by backend sync
+    const customItems: MenuItem[] = JSON.parse(localStorage.getItem('haven_custom_items') || '[]')
+    localStorage.setItem('haven_custom_items', JSON.stringify([...customItems, item]))
     setNewItem({ name: '', price: '', category: '' })
   }
-  const handleDeleteItem = (id: string) => saveMenu(menu.filter(m => m.id !== id))
-  const categories = [...new Set(menu.map(m => m.category))]
+  const handleDeleteItem = (id: string) => {
+    saveMenu(menu.filter(m => m.id !== id))
+    // Remove from custom items store too
+    const customItems: MenuItem[] = JSON.parse(localStorage.getItem('haven_custom_items') || '[]')
+    localStorage.setItem('haven_custom_items', JSON.stringify(customItems.filter(m => m.id !== id)))
+  }
+  const handleAddCategory = () => {
+    const name = newCategory.trim()
+    if (!name || customCategories.includes(name)) return
+    const updated = [...customCategories, name]
+    setCustomCategories(updated)
+    localStorage.setItem('haven_custom_categories', JSON.stringify(updated))
+    setNewCategory('')
+  }
+  const menuCategories = [...new Set(menu.map(m => m.category))]
+  const allCategories = [...new Set([...menuCategories, ...customCategories])]
   const filteredMenu = menu.filter(m => menuSearch === '' || m.name.toLowerCase().includes(menuSearch.toLowerCase()) || m.category.toLowerCase().includes(menuSearch.toLowerCase()))
 
   return (
@@ -244,6 +266,25 @@ export default function Dashboard() {
 
       {tab === 'menu' ? (
         <div className="space-y-4">
+          {/* Add Menu Category */}
+          <div className="bg-gray-800 rounded-xl p-4 border border-gray-700">
+            <h3 className="font-bold text-sm text-gray-300 mb-1">📂 Add Menu Category</h3>
+            <p className="text-xs text-gray-500 mb-3">Categories can be added but not deleted</p>
+            {customCategories.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-3">
+                {customCategories.map(cat => (
+                  <span key={cat} className="px-3 py-1 bg-amber-500/20 border border-amber-500/40 text-amber-400 rounded-full text-xs font-medium">{cat}</span>
+                ))}
+              </div>
+            )}
+            <div className="flex gap-2">
+              <input value={newCategory} onChange={e => setNewCategory(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleAddCategory()}
+                placeholder="Category name..." className="px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-sm flex-1 focus:outline-none focus:border-amber-500" />
+              <button onClick={handleAddCategory} className="px-4 py-2 bg-amber-600 hover:bg-amber-500 rounded-lg text-sm font-bold">Add Category</button>
+            </div>
+          </div>
+
           <div className="bg-gray-800 rounded-xl p-4 border border-gray-700">
             <h3 className="font-bold text-sm text-gray-300 mb-3">➕ Add New Item</h3>
             <div className="flex flex-wrap gap-2">
@@ -254,7 +295,7 @@ export default function Dashboard() {
               <select value={newItem.category} onChange={e => setNewItem({ ...newItem, category: e.target.value })}
                 className="px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-sm flex-1 min-w-[150px] focus:outline-none focus:border-amber-500">
                 <option value="">Select category</option>
-                {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                {allCategories.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
               <button onClick={handleAddItem} className="px-4 py-2 bg-green-600 hover:bg-green-500 rounded-lg text-sm font-bold">Add</button>
             </div>

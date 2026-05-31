@@ -19,8 +19,9 @@ export default function POS() {
   })
   const [categories, setCategories] = useState<string[]>(() => {
     const stored = JSON.parse(localStorage.getItem('haven_menu') || 'null')
+    const customCats: string[] = JSON.parse(localStorage.getItem('haven_custom_categories') || '[]')
     const m: MenuItem[] = Array.isArray(stored) ? stored : menuData
-    return [...new Set(m.map((i: MenuItem) => i.category))] as string[]
+    return [...new Set([...m.map((i: MenuItem) => i.category), ...customCats])] as string[]
   })
   const [activeCategory, setActiveCategory] = useState('All')
   const [search, setSearch] = useState('')
@@ -42,26 +43,34 @@ export default function POS() {
 
   // Fetch menu from backend
   useEffect(() => {
+    const customItems: MenuItem[] = JSON.parse(localStorage.getItem('haven_custom_items') || '[]')
+    const customCats: string[] = JSON.parse(localStorage.getItem('haven_custom_categories') || '[]')
+
     getMenu().then(items => {
       if (items.length > 0) {
-        const localMenu: MenuItem[] = JSON.parse(localStorage.getItem('haven_menu') || 'null')
-        if (Array.isArray(localMenu)) {
-          const customItems = localMenu.filter(l => !items.some(i => i.name.toLowerCase() === l.name.toLowerCase()))
-          const merged = [...items, ...customItems]
-          setMenu(merged)
-          setCategories([...new Set(merged.map(i => i.category))])
-          localStorage.setItem('haven_menu', JSON.stringify(merged))
-        } else {
-          setMenu(items)
-          setCategories([...new Set(items.map(i => i.category))])
-          localStorage.setItem('haven_menu', JSON.stringify(items))
+        // Always keep user-added custom items, dedupe by name against backend
+        const uniqueCustom = customItems.filter(c => !items.some(i => i.name.toLowerCase() === c.name.toLowerCase()))
+        const merged = [...items, ...uniqueCustom]
+        setMenu(merged)
+        const cats = [...new Set([...merged.map(i => i.category), ...customCats])]
+        setCategories(cats)
+        localStorage.setItem('haven_menu', JSON.stringify(merged))
+      } else {
+        // Backend returned empty — still show custom items
+        if (customItems.length > 0) {
+          setMenu(prev => {
+            const names = new Set(prev.map(p => p.name.toLowerCase()))
+            const extra = customItems.filter(c => !names.has(c.name.toLowerCase()))
+            return [...prev, ...extra]
+          })
+          setCategories(prev => [...new Set([...prev, ...customItems.map(c => c.category), ...customCats])])
         }
       }
     }).catch(() => {
       const localMenu = JSON.parse(localStorage.getItem('haven_menu') || 'null')
       if (localMenu) {
         setMenu(localMenu)
-        setCategories([...new Set(localMenu.map((i: MenuItem) => i.category))] as string[])
+        setCategories([...new Set([...localMenu.map((i: MenuItem) => i.category), ...customCats])] as string[])
       }
     })
   }, [])
