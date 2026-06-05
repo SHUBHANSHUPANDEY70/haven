@@ -38,16 +38,19 @@ export default function Dashboard() {
   const [pruneOption, setPruneOption] = useState<'today' | 'week' | 'month' | 'all'>('week')
   const [isDeleting, setIsDeleting] = useState(false)
 
+  const normalizeOrders = (data: any): Order[] =>
+    (Array.isArray(data) ? data : []).map((o: any) => ({ ...o, items: Array.isArray(o?.items) ? o.items : [] }))
+
   const loadData = () => {
-    getOrders().then(setOrders).catch(() => {
-      setOrders(JSON.parse(localStorage.getItem('haven_orders') || '[]'))
+    getOrders().then(d => setOrders(normalizeOrders(d))).catch(() => {
+      setOrders(normalizeOrders(JSON.parse(localStorage.getItem('haven_orders') || '[]')))
     })
     getDashboard().then(s => setStats(s as Stats)).catch(() => {
       const localOrders: Order[] = JSON.parse(localStorage.getItem('haven_orders') || '[]')
       const today = new Date().toDateString()
       const todayOrders = localOrders.filter(o => new Date(o.createdAt).toDateString() === today)
       const itemCount: Record<string, number> = {}
-      todayOrders.forEach(o => o.items.forEach(i => { itemCount[i.name] = (itemCount[i.name] || 0) + i.quantity }))
+      todayOrders.forEach(o => (o.items || []).forEach(i => { itemCount[i.name] = (itemCount[i.name] || 0) + i.quantity }))
       setStats({
         totalRevenue: todayOrders.reduce((s, o) => s + o.total, 0),
         totalBills: todayOrders.length,
@@ -148,7 +151,7 @@ export default function Dashboard() {
     const today = new Date().toDateString()
     const todayOrders = currentOrders.filter(o => new Date(o.createdAt).toDateString() === today)
     const itemCount: Record<string, number> = {}
-    todayOrders.forEach(o => o.items.forEach(i => { itemCount[i.name] = (itemCount[i.name] || 0) + i.quantity }))
+    todayOrders.forEach(o => (o.items || []).forEach(i => { itemCount[i.name] = (itemCount[i.name] || 0) + i.quantity }))
     setStats({
       totalRevenue: todayOrders.reduce((s, o) => s + o.total, 0),
       totalBills: todayOrders.length,
