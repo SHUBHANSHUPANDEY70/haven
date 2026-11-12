@@ -11,9 +11,21 @@ export function wakeBackend() {
 
 // MongoDB returns _id — normalize it to id so our MenuItem interface works
 export const getMenu = () =>
-  api.get<(MenuItem & { _id?: string })[]>('/menu').then(r =>
-    r.data.map(item => ({ ...item, id: item.id || item._id || '' }))
-  )
+  api.get<(MenuItem & { _id?: string })[]>('/menu').then(r => r.data.map(normalizeMenuItem))
+
+const normalizeMenuItem = (item: MenuItem & { _id?: string }): MenuItem => ({
+  ...item,
+  id: item.id || item._id || '',
+})
+
+export const createMenuItem = (item: { name: string; price: number; category: string }) =>
+  api.post<MenuItem & { _id?: string }>('/menu', item).then(r => normalizeMenuItem(r.data))
+
+export const updateMenuItem = (id: string, patch: Partial<Pick<MenuItem, 'name' | 'price' | 'category'>>) =>
+  api.put<{ message: string }>(`/menu/${id}`, patch).then(r => r.data)
+
+export const deleteMenuItem = (id: string) =>
+  api.delete<{ message: string }>(`/menu/${id}`).then(r => r.data)
 
 export const createOrder = (items: CartItem[], paymentMethod: string, total?: number) => {
   const subtotal = items.reduce((s, i) => s + i.total, 0)

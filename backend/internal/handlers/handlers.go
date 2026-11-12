@@ -33,6 +33,124 @@ func GetMenu(c *gin.Context) {
 	c.JSON(http.StatusOK, items)
 }
 
+func CreateMenuItem(c *gin.Context) {
+	var input struct {
+		Name     string  `json:"name"`
+		Price    float64 `json:"price"`
+		Category string  `json:"category"`
+		Note     string  `json:"note"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if input.Name == "" || input.Category == "" || input.Price <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "name, category and a positive price are required"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	item := models.MenuItem{
+		ID:       primitive.NewObjectID(),
+		Name:     input.Name,
+		Price:    input.Price,
+		Category: input.Category,
+		Note:     input.Note,
+	}
+	if _, err := database.MenuCollection().InsertOne(ctx, item); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusCreated, item)
+}
+
+func UpdateMenuItem(c *gin.Context) {
+	id, err := primitive.ObjectIDFromHex(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid menu item ID"})
+		return
+	}
+
+	var input struct {
+		Name     *string  `json:"name"`
+		Price    *float64 `json:"price"`
+		Category *string  `json:"category"`
+		Note     *string  `json:"note"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	set := bson.M{}
+	if input.Name != nil {
+		if *input.Name == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "name cannot be empty"})
+			return
+		}
+		set["name"] = *input.Name
+	}
+	if input.Price != nil {
+		if *input.Price <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "price must be positive"})
+			return
+		}
+		set["price"] = *input.Price
+	}
+	if input.Category != nil {
+		if *input.Category == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "category cannot be empty"})
+			return
+		}
+		set["category"] = *input.Category
+	}
+	if input.Note != nil {
+		set["note"] = *input.Note
+	}
+	if len(set) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "no fields to update"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	res, err := database.MenuCollection().UpdateOne(ctx, bson.M{"_id": id}, bson.M{"$set": set})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if res.MatchedCount == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Menu item not found"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Menu item updated successfully"})
+}
+
+func DeleteMenuItem(c *gin.Context) {
+	id, err := primitive.ObjectIDFromHex(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid menu item ID"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	res, err := database.MenuCollection().DeleteOne(ctx, bson.M{"_id": id})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if res.DeletedCount == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Menu item not found"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Menu item deleted successfully"})
+}
+
 func CreateOrder(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

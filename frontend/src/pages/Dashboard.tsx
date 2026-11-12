@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import type { MenuItem } from '../types'
 import { menuData } from '../data/menu'
-import { getOrders, getDashboard, deleteOrder, deleteOlderOrders } from '../utils/api'
+import { getOrders, getDashboard, deleteOrder, deleteOlderOrders, getMenu, createMenuItem, updateMenuItem, deleteMenuItem } from '../utils/api'
 
 interface OrderItem { name: string; price: number; quantity: number; total: number }
 interface Order { id?: string; invoiceNo: number; items: OrderItem[]; subtotal: number; total: number; paymentMethod: string; createdAt: string }
@@ -63,6 +63,18 @@ export default function Dashboard() {
 
   useEffect(() => {
     loadData()
+  }, [])
+
+  // Pull the shared menu from the backend so items added on any device show up here
+  useEffect(() => {
+    getMenu().then(items => {
+      if (items.length === 0) return
+      const customItems: MenuItem[] = JSON.parse(localStorage.getItem('haven_custom_items') || '[]')
+      const uniqueCustom = customItems.filter(c => !items.some(i => i.name.toLowerCase() === c.name.toLowerCase()))
+      const merged = [...items, ...uniqueCustom]
+      setMenu(merged)
+      localStorage.setItem('haven_menu', JSON.stringify(merged))
+    }).catch(() => {/* offline — keep the locally cached menu */})
   }, [])
 
   const handleDeleteOrder = async (order: Order) => {
@@ -217,26 +229,44 @@ export default function Dashboard() {
 
   // Menu management
   const saveMenu = (updated: MenuItem[]) => { setMenu(updated); localStorage.setItem('haven_menu', JSON.stringify(updated)) }
-  const handlePriceUpdate = (id: string) => {
+  const handlePriceUpdate = async (id: string) => {
     const price = parseFloat(editPrice)
     if (isNaN(price) || price <= 0) return
     saveMenu(menu.map(m => m.id === id ? { ...m, price } : m))
     setEditId(null); setEditPrice('')
+    // Sync to the backend so every device sees the new price. Legacy custom_ ids are local-only.
+    if (!id.startsWith('custom_')) {
+      try { await updateMenuItem(id, { price }) }
+      catch (err: any) { alert(`Price saved on this device only. Server error: ${err?.message || 'offline'}`) }
+    }
   }
-  const handleAddItem = () => {
+  const handleAddItem = async () => {
     if (!newItem.name || !newItem.price || !newItem.category) return
-    const item: MenuItem = { id: `custom_${Date.now()}`, name: newItem.name, price: parseFloat(newItem.price), category: newItem.category }
-    saveMenu([...menu, item])
-    // Persist in a separate key that is never overwritten by backend sync
-    const customItems: MenuItem[] = JSON.parse(localStorage.getItem('haven_custom_items') || '[]')
-    localStorage.setItem('haven_custom_items', JSON.stringify([...customItems, item]))
+    const price = parseFloat(newItem.price)
+    if (isNaN(price) || price <= 0) return
+    try {
+      // Create in the shared database — returns the real id so it syncs to all devices
+      const saved = await createMenuItem({ name: newItem.name, price, category: newItem.category })
+      saveMenu([...menu, saved])
+    } catch (err: any) {
+      // Offline fallback — keep it locally so the entry isn't lost (won't sync until re-added online)
+      const item: MenuItem = { id: `custom_${Date.now()}`, name: newItem.name, price, category: newItem.category }
+      saveMenu([...menu, item])
+      const customItems: MenuItem[] = JSON.parse(localStorage.getItem('haven_custom_items') || '[]')
+      localStorage.setItem('haven_custom_items', JSON.stringify([...customItems, item]))
+      alert(`Added on this device only (will not sync). Server error: ${err?.message || 'offline'}`)
+    }
     setNewItem({ name: '', price: '', category: '' })
   }
-  const handleDeleteItem = (id: string) => {
+  const handleDeleteItem = async (id: string) => {
     saveMenu(menu.filter(m => m.id !== id))
-    // Remove from custom items store too
+    // Remove from local custom cache too
     const customItems: MenuItem[] = JSON.parse(localStorage.getItem('haven_custom_items') || '[]')
     localStorage.setItem('haven_custom_items', JSON.stringify(customItems.filter(m => m.id !== id)))
+    if (!id.startsWith('custom_')) {
+      try { await deleteMenuItem(id) }
+      catch (err: any) { alert(`Deleted on this device only. Server error: ${err?.message || 'offline'}`) }
+    }
   }
   const handleAddCategory = () => {
     const name = newCategory.trim()

@@ -15,6 +15,9 @@ func Setup() *gin.Engine {
 	{
 		api.GET("/menu", handlers.GetMenu)
 		api.HEAD("/menu", handlers.GetMenu)
+		api.POST("/menu", handlers.CreateMenuItem)
+		api.PUT("/menu/:id", handlers.UpdateMenuItem)
+		api.DELETE("/menu/:id", handlers.DeleteMenuItem)
 		api.POST("/orders", handlers.CreateOrder)
 		api.GET("/orders", handlers.GetOrders)
 		api.DELETE("/orders/:id", handlers.DeleteOrder)
